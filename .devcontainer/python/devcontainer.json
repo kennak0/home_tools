@@ -1,0 +1,106 @@
+// For format details, see https://aka.ms/vscode-remote/devcontainer.json or this file's README at:
+// https://github.com/devcontainers/images/blob/main/src/base-debian/.devcontainer/Dockerfile
+// https://code.visualstudio.com/docs/editor/integrated-terminal
+// https://github.com/devcontainers/images/blob/main/src/base-debian/.devcontainer/devcontainer.json
+{
+  "name": "tokyo-gas/tks-aws(開発用機械学習コンテナ)",
+  // Set *default* container specific settings.json values on container create.
+  "build": {
+    "context": "..",
+    "dockerfile": "Dockerfile",
+    "args": {
+      "VARIANT": "cuda11.8-cudnn9"
+    }
+  },
+
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": "true",
+      // "username": "vscode",
+      // "uid": "1000",
+      // "gid": "1000",
+      "upgradePackages": "true"
+    },
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    },
+    "ghcr.io/anthropics/devcontainer-features/claude-code:1.0": {},
+    "ghcr.io/devcontainers/features/python:1": {},
+    "ghcr.io/devcontainers-extra/features/apt-get-packages:1": {
+      "packages": ["curl", "ca-certificates"]
+    }
+  },
+
+  // Configure tool-specific properties.
+  "customizations": {
+    // Configure properties specific to VS Code.
+    "vscode": {
+      // Set *default* container specific settings.json values on container create.
+      "settings": {
+        "diffEditor.wordWrap": "off",
+        "editor.bracketPairColorization.enabled": true,
+        "editor.cursorSmoothCaretAnimation": "on",
+        "editor.formatOnSave": true,
+        "editor.guides.bracketPairs": true, // advanced indent guides (But only for brackets) (This does not turn off editor.bracketPairColorization)
+        "editor.guides.indentation": true, // new API for indent guides. The old one is: "editor.renderIndentGuides": false,
+        "editor.inlayHints.enabled": "off",
+        "editor.stickyScroll.enabled": true,
+        "editor.wordWrap": "off",
+        "terminal.integrated.copyOnSelection": true,
+        "terminal.integrated.scrollback": 100000,
+        "terraform.languageServer": {
+          "enabled": true,
+          "args": ["serve"]
+        },
+        "terraform.lintPath": "tflint",
+        "redhat.telemetry.enabled": false,
+        "telemetry.telemetryLevel": "off"
+      },
+
+      // Add the IDs of extensions you want installed when the container is created.
+      "extensions": [
+        "christian-kohler.path-intellisense",
+        "esbenp.prettier-vscode",
+        "foxundermoon.shell-format",
+        "GitHub.vscode-github-actions",
+        "GitHub.vscode-pull-request-github",
+        "hediet.vscode-drawio",
+        "IBM.output-colorizer",
+        "mhutchie.git-graph",
+        "ms-azuretools.vscode-docker",
+        "quicktype.quicktype", // Paste JSON as code
+        "redhat.vscode-yaml", // Kubernetes, Drone syntax highlighting
+        "shardulm94.trailing-spaces",
+        "streetsidesoftware.code-spell-checker",
+        "terrastruct.d2",
+        "Tyriar.sort-lines",
+        "wayou.vscode-todo-highlight"
+      ]
+    }
+  },
+  // Use 'forwardPorts' to make a list of ports inside the container available locally.
+  // "forwardPorts": [],
+
+  // Use 'postCreateCommand' to run commands after the container is created.
+  "postCreateCommand": "bash .devcontainer/python/scripts/install-dev-tools.sh",
+
+  // Comment out to connect as root instead. More info: https://aka.ms/vscode-remote/containers/non-root.
+  // "remoteUser": "vscode"
+
+  // Uncomment when using a ptrace-based debugger like C++, Go, and Rust
+  "runArgs": [
+    "--cap-add=SYS_PTRACE",
+    "--security-opt",
+    "seccomp=unconfined"
+    // "--cap-add=NET_ADMIN", // claudecode firewall
+    // "--cap-add=NET_RAW" // claudecode firewall
+  ],
+  // Uncomment to use the Docker CLI from inside the container. See https://aka.ms/vscode-remote/samples/docker-from-docker.
+  "mounts": [
+    // rootless docker in docker
+    "source=/run/user/1000/docker.sock,target=/run/user/1000/docker.sock,type=bind",
+    "source=claude-code-bashhistory,target=/commandhistory,type=volume",
+    "source=claude-code-config,target=/home/node/.claude,type=volume"
+  ]
+}
