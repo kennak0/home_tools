@@ -1,5 +1,5 @@
 // 開発用の静的サーバ。pwa/ をルートとして配信する（GitHub Pages の /home_tools/ 相当）。
-//   node pwa/tools/serve.mjs [--root pwa] [--port 8080]
+//   node pwa/tools/serve.mjs [--root pwa] [--port 8080] [--no-cache]
 // npm の依存は増やさない。
 import { createServer } from "node:http";
 import { createReadStream, statSync } from "node:fs";
@@ -10,6 +10,9 @@ const args = Object.fromEntries(
 );
 const root = resolve(args.root ?? "pwa");
 const port = Number(args.port ?? 8080);
+// 既定は Pages と同じ max-age=600（HTTP キャッシュに頼らない作りかを見るため）。
+// --no-cache は編集を繰り返すとき用。古いモジュールを掴んだまま調べても結論が出ない
+const noCache = "no-cache" in args;
 
 const types = {
   ".html": "text/html; charset=utf-8",
@@ -52,8 +55,7 @@ createServer((req, res) => {
     res.writeHead(200, {
       "Content-Type": types[extname(file)] ?? "application/octet-stream",
       "Content-Length": size,
-      // Pages と同じ。HTTP キャッシュに頼らない作りかを見るため
-      "Cache-Control": "max-age=600",
+      "Cache-Control": noCache ? "no-store" : "max-age=600",
     });
     createReadStream(file).pipe(res);
   } catch {

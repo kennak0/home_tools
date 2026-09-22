@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <!-- GitHub Pages はヘッダーを設定できないので CSP は meta で。通信しないので connect-src は none -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob:; connect-src 'none'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+  <title>ちいさな街</title>
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="ちいさな街">
+  <meta name="color-scheme" content="dark">
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <div class="screen">
+    <header class="bar">
+      <span class="label">資金</span>
+      <span id="funds" class="funds">¥0</span>
+      <span class="spacer"></span>
+      <button id="zoom-out" type="button" class="icon" aria-label="縮小">−</button>
+      <button id="zoom-in" type="button" class="icon" aria-label="拡大">＋</button>
+      <button id="new-city" type="button" class="icon wide">新しい街</button>
+    </header>
+
+    <div class="map-wrap">
+      <canvas id="map"></canvas>
+      <p id="message" class="message" role="status" aria-live="polite" hidden></p>
+    </div>
+
+    <nav id="toolbar" class="toolbar" aria-label="ツール">
+      <button type="button" data-tool="hand" aria-pressed="true">
+        <span class="tool-name">手のひら</span>
+        <span class="tool-cost">動かす</span>
+      </button>
+      <button type="button" data-tool="road" aria-pressed="false">
+        <span class="tool-name">道路</span>
+        <span class="tool-cost">¥10</span>
+      </button>
+      <button type="button" data-tool="zoneR" aria-pressed="false">
+        <span class="tool-name">住宅</span>
+        <span class="tool-cost">¥100</span>
+      </button>
+      <button type="button" data-tool="bulldoze" aria-pressed="false">
+        <span class="tool-name">整地</span>
+        <span class="tool-cost">¥1</span>
+      </button>
+    </nav>
+  </div>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

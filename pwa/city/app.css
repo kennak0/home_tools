@@ -1,0 +1,121 @@
+/* ゲーム画面。地図を見せたいので、暗い配色に固定する（端末のテーマには追従しない） */
+:root {
+  --bg: #12161d;
+  --panel: #1c222c;
+  --fg: #e8ecf1;
+  --muted: #98a2b1;
+  --border: #2c3542;
+  --accent: #f0b429;
+  --accent-fg: #1a1205;
+  --low: #f87171;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html, body { margin: 0; height: 100%; overflow: hidden; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  /* 連打する UI なので、iOS の選択・コピーバーと長押しメニューを出さない */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+.screen {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+/* 上のバー */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .5rem max(env(safe-area-inset-right, 0px), .75rem) .5rem max(env(safe-area-inset-left, 0px), .75rem);
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.label { font-size: .8rem; color: var(--muted); }
+.funds { font: 600 1.1rem/1 ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+.funds.low { color: var(--low); }
+.spacer { flex: 1; }
+
+button {
+  font: inherit;
+  color: var(--fg);
+  background: #28313e;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: .4rem .7rem;
+  cursor: pointer;
+}
+button:active { background: #333e4d; }
+.icon { min-width: 2.4rem; font-size: 1.1rem; line-height: 1.2; }
+.icon.wide { font-size: .85rem; }
+
+/* 地図 */
+.map-wrap { position: relative; flex: 1; min-height: 0; }
+#map {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* ブラウザ側のスクロールとピンチを完全に止める。ジェスチャは input.js が解釈する */
+  touch-action: none;
+}
+
+.message {
+  position: absolute;
+  left: 50%;
+  bottom: .75rem;
+  transform: translateX(-50%);
+  max-width: calc(100% - 1.5rem);
+  margin: 0;
+  padding: .45rem .8rem;
+  font-size: .85rem;
+  white-space: nowrap;
+  background: rgba(18, 22, 29, .92);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+/* 下のツールバー。親指の届く位置に置く */
+.toolbar {
+  display: flex;
+  gap: .4rem;
+  padding: .5rem max(env(safe-area-inset-right, 0px), .5rem) .5rem max(env(safe-area-inset-left, 0px), .5rem);
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+.toolbar button {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .15rem;
+  padding: .6rem .2rem;
+  min-height: 3.2rem;
+}
+.toolbar button[aria-pressed="true"] {
+  background: var(--accent);
+  color: var(--accent-fg);
+  border-color: var(--accent);
+}
+.tool-name { font-size: .95rem; font-weight: 600; }
+.tool-cost { font-size: .7rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.toolbar button[aria-pressed="true"] .tool-cost { color: #5c4405; }
+
+/* 横向きや大きい画面では、ツールバーが間延びしないように幅を抑える */
+@media (min-width: 40rem) {
+  .toolbar { max-width: 36rem; margin: 0 auto; width: 100%; }
+}
