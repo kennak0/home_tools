@@ -4,6 +4,7 @@
 /*
 !/.gitignore
 !/pwa/
+!/.github/
 
 # pwa/ の中でも追跡しないもの
 pwa/**/node_modules/

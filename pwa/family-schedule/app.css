@@ -1,0 +1,98 @@
+:root {
+  --bg: #f6f6f4;
+  --fg: #1c1c1c;
+  --muted: #6b6b6b;
+  --accent: #2563eb;
+  --accent-fg: #fff;
+  --border: #d4d4d0;
+  --error: #b91c1c;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #141414;
+    --fg: #ececec;
+    --muted: #9a9a9a;
+    --accent: #3b82f6;
+    --border: #3a3a3a;
+    --error: #f87171;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html, body { margin: 0; height: 100%; }
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  /* 連打する UI で iOS の「コピー / 調べる」バーを出さない。レイアウト全体に掛ける */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+
+/* ページ自体はスクロールしない。中身の pane だけ scroll する */
+.screen {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: max(env(safe-area-inset-top), 12px);
+  padding-bottom: max(env(safe-area-inset-bottom), 12px);
+  padding-left: max(env(safe-area-inset-left), 16px);
+  padding-right: max(env(safe-area-inset-right), 16px);
+}
+
+.pane {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  width: 100%;
+  max-width: 28rem;
+  margin: 0 auto;
+  padding-top: 8vh;
+}
+
+h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
+.lead { color: var(--muted); margin: 0 0 1.5rem; }
+
+label { display: block; font-size: .9rem; margin-bottom: .25rem; }
+
+input[type="password"] {
+  width: 100%;
+  font: inherit;
+  font-family: ui-monospace, Menlo, monospace;
+  padding: .75rem;
+  border: 1px solid var(--border);
+  border-radius: .5rem;
+  background: transparent;
+  color: var(--fg);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+button {
+  display: block;
+  width: 100%;
+  margin-top: 1rem;
+  padding: .9rem;
+  font: inherit;
+  font-weight: 600;
+  border: 0;
+  border-radius: .5rem;
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+button:disabled { opacity: .6; }
+button.secondary {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  font-weight: 400;
+}
+
+.error { color: var(--error); margin: .75rem 0 0; }

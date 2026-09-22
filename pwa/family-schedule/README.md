@@ -8,7 +8,11 @@
 
 ## 状態
 
-設計中。コードはまだない。
+段階 1 の途中。ログイン画面（`config.enc` の復号 → settings 保存 → ログアウト）まで
+実装済みで、GitHub Pages に配信する Actions（`.github/workflows/pages.yml`）も置いた。
+**service worker と manifest はまだ無い**（普通の Web ページとして動く。オフライン起動・
+更新バナーは無し）。予定表本体に着手するときに `sw.js` と生成スクリプトを足す。
+それまで家族には配らない。
 
 ## 段階
 
@@ -75,6 +79,32 @@ config.enc（公開サイトに置く。中身は AES-GCM で暗号化した JSO
 - 合言葉を変える = `config.enc` を作り直してコミットし、家族に入れ直してもらう。
   トークンを失効させたときも同じ手順
 
+### `config.enc` の形式（v1）と作り方
+
+```json
+{ "v": 1,
+  "kdf": { "name": "PBKDF2", "hash": "SHA-256", "iterations": 600000, "salt": "<base64 16B>" },
+  "cipher": "AES-GCM", "iv": "<base64 12B>", "ct": "<base64>" }
+```
+
+`ct` を復号した平文は JSON オブジェクトで、キーがそのまま IndexedDB の `settings` に
+入る（段階 1 は `{ "ok": true }`）。合言葉違いは AES-GCM の認証失敗になるので、
+別途ハッシュを置く必要はない。復号側は `login.js`、生成側は `pwa/tools/make-config.mjs`。
+
+```bash
+node pwa/tools/make-config.mjs \
+  --out pwa/family-schedule/config.enc \
+  --passphrase-file ~/.config/home_tools/family-schedule.passphrase \
+  [--in pwa/family-schedule/config.plain.json]   # 省略時は { "ok": true }
+```
+
+- 合言葉は 5 文字 × 4 組（紛らわしい文字を除いた 31 種、約 99 bit）を生成し、
+  `--passphrase-file` に mode 0600 で書く。**画面には出さない**（ターミナルのログに
+  残さないため）。家族に伝えるときはそのファイルを開く
+- `--passphrase-file` が既にあればその合言葉を使い回す。中身を足して作り直しても
+  家族の入れ直しは要らない。合言葉を変えるときはファイルを消してから実行する
+- `config.plain.json` は `.gitignore` で除外済み。`config.enc` だけコミットする
+
 ### 合言葉の強さ
 
 `config.enc` は公開サイトに置くので、誰でもダウンロードしてオフラインで総当たり
@@ -129,15 +159,16 @@ IndexedDB（DB 名 `family-schedule`）。`localStorage` は使わない。
 
 インデックス: `events.date`（月表示の範囲取得）、`events.updatedAt`（同期の差分取得）。
 
-## ファイル構成（予定）
+## ファイル構成（✓ は実装済み）
 
 ```
 pwa/family-schedule/
-├── index.html             起動ページ。standalone 判定の inline script を <head> に置く
-├── app.js                 エントリ（ES module）
-├── login.js               共有コード入力 → PBKDF2 → config.enc 復号 → settings 保存
-├── config.enc             暗号化済み設定（これだけコミットする。平文と合言葉は置かない）
-├── db.js                  IndexedDB ラッパ
+├── index.html           ✓ 起動ページ。standalone 判定の inline script を <head> に置く。ログイン画面と仮のホーム画面
+├── app.js               ✓ エントリ（ES module）。unlocked を見て画面を出し分ける
+├── app.css              ✓ 共通スタイル（safe-area、100dvh の flex column、iOS の選択バー対策）
+├── login.js             ✓ 共有コード入力 → PBKDF2 → config.enc 復号 → settings 保存。ログアウト
+├── config.enc           ✓ 暗号化済み設定（これだけコミットする。平文と合言葉は置かない）
+├── db.js                ✓ IndexedDB ラッパ（events / members / settings。v1 で全ストア作成済み）
 ├── calendar.js            月表示
 ├── sw.js                  service worker（precache 一覧と VERSION は生成）
 ├── manifest.webmanifest   name / icons / start_url と scope（GitHub Pages では末尾スラッシュあり。「ホスティング」参照）
@@ -146,6 +177,12 @@ pwa/family-schedule/
 ├── ocr.js                 段階 2b。Tesseract.js の呼び出し。dynamic import
 ├── vendor/tesseract/      段階 2b。Tesseract.js 本体・worker・WASM・jpn.traineddata（precache 対象外）
 └── photo-import.js        段階 2c。dynamic import で起動時には読まない
+
+pwa/tools/
+├── make-config.mjs      ✓ config.enc の生成（「ログイン」参照）
+├── serve.mjs            ✓ 開発用の静的サーバ。`node pwa/tools/serve.mjs` で pwa/ を http://localhost:8080/ に
+├── slow-proxy.mjs         応答前に sleep するリバースプロキシ（遅い回線の再現）
+└── build-sw.mjs           precache 一覧と VERSION を sw.js に埋める
 ```
 
 ## ホスティング（GitHub Pages を第一候補）
@@ -156,13 +193,13 @@ pwa/family-schedule/
 
 | 項目 | 内容 |
 |---|---|
-| URL | `https://k-nakasaka.github.io/home_tools/family-schedule/`（リポジトリ `k-nakasaka/home_tools`。git で追跡するのは `pwa/` だけなので、このリポジトリをそのまま配信用にする）。無料プランで Pages を使うには**公開リポジトリ**にする必要がある。公開したくなければ GitHub Pro にするか Cloudflare Pages にする |
-| オリジン | `k-nakasaka.github.io` は他の Pages サイトと共有のオリジン。**後からカスタムドメインに変えるとホーム画面のアイコンが古いオリジンに残る**（SKILL.md「Moving an app to another origin」）。家族に配る前にドメインを決める |
+| URL | `https://kennak0.github.io/home_tools/family-schedule/`（リポジトリ `kennak0/home_tools`。git で追跡するのは `pwa/` だけなので、このリポジトリをそのまま配信用にする）。無料プランで Pages を使うには**公開リポジトリ**にする必要がある。公開したくなければ GitHub Pro にするか Cloudflare Pages にする |
+| オリジン | `kennak0.github.io` は他の Pages サイトと共有のオリジン。**後からカスタムドメインに変えるとホーム画面のアイコンが古いオリジンに残る**（SKILL.md「Moving an app to another origin」）。家族に配る前にドメインを決める |
 | `scope` / `start_url` | **末尾スラッシュあり** `/home_tools/family-schedule/`。SKILL.md は「スラッシュなし」を勧めるが、それには `Service-Worker-Allowed` ヘッダーが要り、GitHub Pages はレスポンスヘッダーを設定できない。Pages はスラッシュなしの URL を 301 でスラッシュありに飛ばすので、実害はない |
 | `sw.js` の HTTP キャッシュ | 全ファイルに `Cache-Control: max-age=600` が付き、変更できない。worker 本体の更新チェックはブラウザが HTTP キャッシュを迂回するので問題ないが、`sw.js` から `importScripts()` したファイルは 10 分キャッシュされる。**`sw.js` は 1 ファイルにまとめ、`importScripts` を使わない** |
 | ハッシュ付きアセットの `immutable` | 付けられない。`max-age=600` のまま。precache は worker のバージョンで管理するので実害なし |
 | 公開範囲 | サイトは誰でも開ける。段階 1 はデータが端末内だけなので問題ない。段階 3 で同期を入れるときは別途サーバと認証が要る（Pages にはサーバがない） |
-| デプロイ | GitHub Actions で `pwa/` 配下だけを `actions/upload-pages-artifact` → `actions/deploy-pages`。**リポジトリのルートを公開しない**（`TODO.md` や個人のメモが載る）。precache 一覧と worker のバージョン生成は Actions 内で `node` を回す |
+| デプロイ | `.github/workflows/pages.yml`（実装済み）。`main` への push で `pwa/` 配下だけを `actions/upload-pages-artifact` → `actions/deploy-pages`。`pwa/tools/` と `*.md` は載せない。**リポジトリのルートを公開しない**（`TODO.md` や個人のメモが載る）。有効化は Settings → Pages → Source を **GitHub Actions** にする。precache 一覧と worker のバージョン生成は将来 Actions 内で `node` を回す |
 
 ### 代替: Cloudflare Pages
 

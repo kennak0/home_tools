@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>家族の予定表</title>
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="予定表">
+  <meta name="color-scheme" content="light dark">
+  <!-- standalone 判定はパース中に済ませる。後で付けるとブラウザ用の chrome が一瞬出る -->
+  <script>
+    if (matchMedia("(display-mode: standalone)").matches || navigator.standalone) {
+      document.documentElement.dataset.standalone = "true";
+    }
+  </script>
+  <link rel="stylesheet" href="./app.css">
+</head>
+<body>
+  <main id="app" class="screen">
+    <!-- ログイン画面。login.js が unlocked を見て出し分ける -->
+    <section id="login" class="pane" hidden>
+      <h1>家族の予定表</h1>
+      <p class="lead">家族の合言葉を入れてください。この端末では 1 回だけ聞きます。</p>
+      <form id="login-form" autocomplete="off">
+        <label for="passphrase">合言葉</label>
+        <input id="passphrase" name="passphrase" type="password" required
+               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
+               inputmode="latin" placeholder="xxxxx-xxxxx-xxxxx-xxxxx">
+        <button id="login-submit" type="submit">入る</button>
+        <p id="login-error" class="error" role="alert" hidden></p>
+      </form>
+    </section>
+
+    <!-- ログイン後。予定表本体はまだ無いので仮の画面 -->
+    <section id="home" class="pane" hidden>
+      <h1>家族の予定表</h1>
+      <p class="lead">ログイン済みです。予定表はこれから作ります。</p>
+      <button id="logout" type="button" class="secondary">ログアウト（この端末の設定を消す）</button>
+    </section>
+
+    <section id="boot" class="pane">
+      <p class="lead">読み込み中…</p>
+    </section>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>

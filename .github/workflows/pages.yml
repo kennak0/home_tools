@@ -1,0 +1,38 @@
+# pwa/ 配下だけを GitHub Pages に配信する。リポジトリのルートは公開しない。
+# 有効化: Settings → Pages → Source を "GitHub Actions" にする（無料プランは公開リポジトリのみ）。
+name: Deploy pwa/ to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "pwa/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/configure-pages@v5
+      # 配信するのはアプリ本体だけ。開発用スクリプト（tools/）と README は載せない
+      - name: Collect site files
+        run: rsync -a --exclude 'tools/' --exclude '*.md' pwa/ _site/
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
