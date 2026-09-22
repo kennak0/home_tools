@@ -45,21 +45,60 @@
       <p id="login-status" class="hint" hidden></p>
     </section>
 
-    <!-- ホーム。保存済みの予定一覧と、読み取りへの入口 -->
+    <!-- ホーム。月カレンダー + 選んだ日の予定。読み取りへの入口もここに置く -->
     <section id="home" class="pane" hidden>
       <header class="bar">
         <h1>家族の予定表</h1>
         <button id="open-settings" type="button" class="link">設定</button>
       </header>
-      <!-- 写真は input[type=file] で撮影 or 選択。change で ocr.js を dynamic import する -->
-      <label class="file-button">
-        <input id="photo-input" type="file" accept="image/*" hidden>
-        写真から予定を読み取る
-      </label>
-      <button id="open-text" type="button" class="secondary">テキストを貼り付けて読み取る</button>
-      <h2>予定</h2>
+      <!-- 月カレンダーは calendar.js が組み立てる -->
+      <div id="calendar"></div>
+      <div class="bar day-bar">
+        <h2 id="day-title"></h2>
+        <button id="go-today" type="button" class="link">今日</button>
+      </div>
       <ul id="event-list" class="events"></ul>
-      <p id="event-empty" class="hint">まだ予定がありません。</p>
+      <p id="event-empty" class="hint">この日の予定はありません。</p>
+      <button id="add-event" type="button">予定を追加</button>
+      <details id="import-entry">
+        <summary>写真やテキストから読み取る</summary>
+        <!-- 写真は input[type=file] で撮影 or 選択。change で ocr.js を dynamic import する -->
+        <label class="file-button">
+          <input id="photo-input" type="file" accept="image/*" hidden>
+          写真から予定を読み取る
+        </label>
+        <button id="open-text" type="button" class="secondary">テキストを貼り付けて読み取る</button>
+      </details>
+    </section>
+
+    <!-- 予定の追加・編集。日付と時刻は壁時計のまま扱う（input[type=date] / [type=time] の値そのもの） -->
+    <section id="editor" class="pane" hidden>
+      <header class="bar">
+        <h1 id="editor-title">予定を追加</h1>
+        <button id="editor-cancel" type="button" class="link">やめる</button>
+      </header>
+      <form id="editor-form" class="form" autocomplete="off">
+        <label for="ev-title">タイトル</label>
+        <input id="ev-title" type="text" enterkeyhint="done">
+        <label for="ev-date">日付</label>
+        <input id="ev-date" type="date" required>
+        <label class="inline"><input id="ev-allday" type="checkbox">終日</label>
+        <div class="form-row">
+          <div>
+            <label for="ev-start">開始</label>
+            <input id="ev-start" type="time">
+          </div>
+          <div>
+            <label for="ev-end">終了</label>
+            <input id="ev-end" type="time">
+          </div>
+        </div>
+        <label for="ev-note">メモ</label>
+        <textarea id="ev-note" rows="3"></textarea>
+        <p id="editor-error" class="error" role="alert" hidden></p>
+        <button id="editor-save" type="submit">保存</button>
+        <button id="editor-delete" type="button" class="secondary danger" hidden>この予定を削除</button>
+      </form>
     </section>
 
     <!-- 読み取り: （写真 → OCR →）テキスト → 解析 → 候補の確認 → 追加。通信なし -->

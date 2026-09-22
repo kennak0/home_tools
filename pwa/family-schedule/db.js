@@ -88,13 +88,29 @@ export async function putEvents(events) {
   await done(tx);
 }
 
+// 終日を先に、次に開始時刻順。同着はタイトル順（描画のたびに並びが変わらないように）
+const byWhen = (a, b) =>
+  a.date.localeCompare(b.date) || (a.start ?? "").localeCompare(b.start ?? "") || a.title.localeCompare(b.title);
+
 // 削除済み（tombstone）を除き、日付・開始時刻順で返す
 export async function listEvents() {
   const db = await openDb();
   const all = await request(db.transaction("events").objectStore("events").getAll());
-  return all
-    .filter((ev) => !ev.deleted)
-    .sort((a, b) => (a.date + (a.start ?? "")).localeCompare(b.date + (b.start ?? "")));
+  return all.filter((ev) => !ev.deleted).sort(byWhen);
+}
+
+// 月表示用。events.date インデックスの範囲で引く（全件読まない）。両端を含む
+export async function listEventsInRange(from, to) {
+  const db = await openDb();
+  const index = db.transaction("events").objectStore("events").index("date");
+  const rows = await request(index.getAll(IDBKeyRange.bound(from, to)));
+  return rows.filter((ev) => !ev.deleted).sort(byWhen);
+}
+
+export async function getEvent(id) {
+  const db = await openDb();
+  const ev = await request(db.transaction("events").objectStore("events").get(id));
+  return ev && !ev.deleted ? ev : undefined;
 }
 
 export async function softDeleteEvent(id) {

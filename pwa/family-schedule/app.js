@@ -1,13 +1,15 @@
-// エントリ。ログイン状態を見て画面を出し分け、ホーム・読み取り（テキスト / 写真）・設定を配線する。
-// 月カレンダーはまだ無い。予定は日付順の一覧で出す。
+// エントリ。ログイン状態を見て画面を出し分け、ホーム（月カレンダー）・予定の追加編集・
+// 読み取り（テキスト / 写真）・設定を配線する。
 import { isUnlocked, mountLogin, logout } from "./login.js";
-import { listEvents, putEvents, softDeleteEvent } from "./db.js";
+import { listEventsInRange, getEvent, putEvents, softDeleteEvent } from "./db.js";
+import { createCalendar, iso, partsOf, todayISO, formatDay, formatTime, monthRange } from "./calendar.js";
 
 const $ = (sel) => document.querySelector(sel);
 const panes = {
   boot: $("#boot"),
   login: $("#login"),
   home: $("#home"),
+  editor: $("#editor"),
   import: $("#import"),
   settings: $("#settings"),
 };
@@ -26,49 +28,163 @@ function setText(sel, text) {
   el.hidden = !text;
 }
 
-function formatDate(iso) {
-  const [y, m, d] = iso.split("-").map(Number);
-  const w = "日月火水木金土"[new Date(y, m - 1, d).getDay()];
-  return `${m}/${d}(${w})`;
+// --- ホーム: 月カレンダー + 選んだ日の予定 --------------------------------
+
+let view = { year: 0, month: 0, selected: todayISO() };
+let calendar = null;
+let monthEvents = []; // 表示中の月の予定。日付一覧はここから絞る（月をまたぐまで読み直さない）
+
+async function refresh() {
+  const { from, to } = monthRange(view.year, view.month);
+  monthEvents = await listEventsInRange(from, to);
+  const counts = new Map();
+  for (const ev of monthEvents) counts.set(ev.date, (counts.get(ev.date) ?? 0) + 1);
+  calendar.render({ year: view.year, month: view.month, selected: view.selected, today: todayISO(), counts });
+  renderDay();
 }
 
-// --- ホーム: 予定一覧 ------------------------------------------------------
-
-async function renderEvents() {
-  const list = $("#event-list");
-  const events = await listEvents();
-  list.replaceChildren(
+function renderDay() {
+  const events = monthEvents.filter((ev) => ev.date === view.selected);
+  $("#day-title").textContent = formatDay(view.selected);
+  $("#event-list").replaceChildren(
     ...events.map((ev) => {
       const li = document.createElement("li");
-      const when = document.createElement("div");
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "row";
+      const when = document.createElement("span");
       when.className = "when";
-      when.textContent = formatDate(ev.date) + (ev.allDay ? "" : `\n${ev.start ?? ""}${ev.end ? "–" + ev.end : ""}`);
-      const body = document.createElement("div");
-      const title = document.createElement("div");
+      when.textContent = formatTime(ev);
+      const body = document.createElement("span");
+      const title = document.createElement("span");
       title.className = "title";
       title.textContent = ev.title;
       body.append(title);
       if (ev.note) {
-        const note = document.createElement("div");
+        const note = document.createElement("span");
         note.className = "note";
         note.textContent = ev.note;
-        body.append(note);
+        body.append(document.createElement("br"), note);
       }
-      const del = document.createElement("button");
-      del.type = "button";
-      del.className = "secondary";
-      del.textContent = "削除";
-      del.addEventListener("click", async () => {
-        if (!confirm(`「${ev.title}」（${formatDate(ev.date)}）を削除しますか？`)) return;
-        del.disabled = true;
-        await softDeleteEvent(ev.id);
-        renderEvents();
-      });
-      li.append(when, body, del);
+      row.append(when, body);
+      row.addEventListener("click", () => openEditor(ev));
+      li.append(row);
       return li;
     }),
   );
   $("#event-empty").hidden = events.length > 0;
+}
+
+// 日付のタップ。同じ月なら DB を読み直さない
+async function selectDate(date) {
+  const { year, month } = partsOf(date);
+  if (year !== view.year || month !== view.month) return goToDate(date);
+  view.selected = date;
+  calendar.render({ selected: date });
+  renderDay();
+}
+
+// 指定の日に移って読み直す（保存・削除のあとや「今日」）
+async function goToDate(date) {
+  const { year, month } = partsOf(date);
+  view = { year, month, selected: date };
+  await refresh();
+}
+
+// 前月・次月。選んだ日も同じ月に移す（一覧と見えている月がずれないように）
+function changeMonth({ year, month, select }) {
+  const lastDay = new Date(year, month, 0).getDate();
+  const day = Math.min(partsOf(view.selected).day, lastDay);
+  view = { year, month, selected: select ?? iso(year, month, day) };
+  refresh();
+}
+
+// --- 予定の追加・編集 ------------------------------------------------------
+
+let editingId = null; // null = 新規
+
+// 終日なら時刻は使わないので触れなくする
+function syncAllDay() {
+  const allDay = $("#ev-allday").checked;
+  $("#ev-start").disabled = allDay;
+  $("#ev-end").disabled = allDay;
+}
+
+function openEditor(ev) {
+  editingId = ev?.id ?? null;
+  $("#editor-title").textContent = ev ? "予定を編集" : "予定を追加";
+  $("#ev-title").value = ev?.title ?? "";
+  $("#ev-date").value = ev?.date ?? view.selected;
+  $("#ev-allday").checked = ev ? Boolean(ev.allDay) : true;
+  $("#ev-start").value = ev?.start ?? "";
+  $("#ev-end").value = ev?.end ?? "";
+  $("#ev-note").value = ev?.note ?? "";
+  $("#editor-delete").hidden = !ev;
+  setText("#editor-error", "");
+  syncAllDay();
+  show("editor");
+  if (!ev) $("#ev-title").focus();
+}
+
+async function saveEditor() {
+  setText("#editor-error", "");
+  const save = $("#editor-save");
+  if (save.disabled) return; // 二度押しで 2 件入れない
+  const date = $("#ev-date").value;
+  const allDay = $("#ev-allday").checked;
+  const start = allDay ? null : $("#ev-start").value || null;
+  const end = allDay ? null : $("#ev-end").value || null;
+  if (!date) {
+    setText("#editor-error", "日付を入れてください。");
+    return;
+  }
+  if (!allDay && !start) {
+    setText("#editor-error", "開始時刻を入れるか、「終日」にしてください。");
+    return;
+  }
+  if (start && end && end < start) {
+    setText("#editor-error", "終了時刻が開始より前になっています。");
+    return;
+  }
+  save.disabled = true;
+  try {
+    const now = Date.now();
+    // 編集のときは画面に出していない項目（members / remindBefore / source / createdAt）を引き継ぐ
+    const base = editingId ? await getEvent(editingId) : null;
+    await putEvents([
+      {
+        id: base?.id ?? crypto.randomUUID(),
+        members: base?.members ?? [],
+        remindBefore: base?.remindBefore ?? null,
+        source: base?.source ?? "manual",
+        createdAt: base?.createdAt ?? now,
+        deleted: false,
+        title: $("#ev-title").value.trim() || "（無題）",
+        date,
+        start,
+        end,
+        allDay,
+        note: $("#ev-note").value.trim(),
+        updatedAt: now,
+      },
+    ]);
+    await goToDate(date); // 日付を変えた編集でも、保存した日に移って結果が見えるように
+    show("home");
+  } catch (e) {
+    console.error(e);
+    setText("#editor-error", "保存に失敗しました。");
+  } finally {
+    save.disabled = false;
+  }
+}
+
+async function deleteEditing() {
+  if (!editingId) return;
+  const ev = monthEvents.find((e) => e.id === editingId) ?? (await getEvent(editingId));
+  if (!confirm(`「${ev?.title ?? "この予定"}」を削除しますか？`)) return;
+  await softDeleteEvent(editingId); // tombstone。同期を入れたとき削除が伝わるように
+  await goToDate(view.selected);
+  show("home");
 }
 
 // --- 読み取り ------------------------------------------------------------------
@@ -297,7 +413,7 @@ async function saveCandidates() {
     );
     cancelImportWork();
     clearPreview();
-    await renderEvents();
+    await goToDate(rows.map((r) => r.date).sort()[0]); // 追加した中で一番早い日を開く
     show("home");
   } catch (e) {
     console.error(e);
@@ -310,11 +426,16 @@ async function saveCandidates() {
 // --- 起動 ----------------------------------------------------------------------
 
 async function main() {
+  calendar = createCalendar($("#calendar"), { onSelect: selectDate, onChangeMonth: changeMonth });
+  const today = todayISO();
+  const { year, month } = partsOf(today);
+  view = { year, month, selected: today };
+
   let unlockedByLogin = false; // #code= の自動解錠が isUnlocked() より先に済んだときに login を出さないため
   mountLogin(panes.login, {
     onUnlocked: async () => {
       unlockedByLogin = true;
-      await renderEvents();
+      await goToDate(todayISO());
       show("home");
     },
   });
@@ -333,6 +454,16 @@ async function main() {
     show("home");
   });
 
+  $("#add-event").addEventListener("click", () => openEditor(null));
+  $("#go-today").addEventListener("click", () => goToDate(todayISO()));
+  $("#editor-cancel").addEventListener("click", () => show("home"));
+  $("#editor-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    saveEditor();
+  });
+  $("#ev-allday").addEventListener("change", syncAllDay);
+  $("#editor-delete").addEventListener("click", deleteEditing);
+
   $("#open-settings").addEventListener("click", () => show("settings"));
   $("#settings-close").addEventListener("click", () => show("home"));
   $("#logout").addEventListener("click", async () => {
@@ -343,7 +474,7 @@ async function main() {
 
   try {
     if ((await isUnlocked()) || unlockedByLogin) {
-      await renderEvents();
+      await goToDate(todayISO());
       // iOS ショートカット「画像からテキストを抽出 → URL を開く」用: ?text=<encoded>
       const shared = new URL(location.href).searchParams.get("text");
       if (shared) {

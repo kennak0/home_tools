@@ -199,16 +199,16 @@ IndexedDB（DB 名 `family-schedule`）。`localStorage` は使わない。
 
 ```
 pwa/family-schedule/
-├── index.html           ✓ 起動ページ。standalone 判定の inline script を <head> に置く。ログイン画面と仮のホーム画面
-├── app.js               ✓ エントリ（ES module）。ログイン / ホーム（予定一覧）/ 読み取り / 設定の配線
+├── index.html           ✓ 起動ページ。standalone 判定の inline script を <head> に置く。ログイン / ホーム / 予定の編集 / 読み取り / 設定
+├── app.js               ✓ エントリ（ES module）。ログイン / ホーム（月カレンダー）/ 予定の追加編集 / 読み取り / 設定の配線
 ├── app.css              ✓ 共通スタイル（safe-area、100dvh の flex column、iOS の選択バー対策）
 ├── standalone.js        ✓ standalone 判定（head で同期に読む。CSP のため inline にしない）
 ├── login.js             ✓ 共有コード入力 → PBKDF2 → config.enc 復号 → settings 保存。ログアウト。#code= と QR の受け口
 ├── qr-scan.js           ✓ カメラ映像 / 写真から QR を読む（jsQR）。押されたときだけ読む
 ├── vendor/jsqr/         ✓ jsQR 1.4.0（UMD、Apache-2.0）。VENDORED.md
 ├── config.enc           ✓ 暗号化済み設定（これだけコミットする。平文と合言葉は置かない）
-├── db.js                ✓ IndexedDB ラッパ（events / members / settings。v1 で全ストア作成済み）
-├── calendar.js            月表示
+├── db.js                ✓ IndexedDB ラッパ（events / members / settings。v1 で全ストア作成済み）。月表示は date インデックスの範囲で引く
+├── calendar.js          ✓ 月表示。日付は "YYYY-MM-DD" 文字列で扱い、Date は日数と曜日を出すためだけに使う
 ├── sw.js                  service worker（precache 一覧と VERSION は生成）
 ├── manifest.webmanifest   name / icons / start_url と scope（GitHub Pages では末尾スラッシュあり。「ホスティング」参照）
 ├── icons/                 apple-touch-icon 含む

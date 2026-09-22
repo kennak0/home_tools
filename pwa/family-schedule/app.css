@@ -6,6 +6,8 @@
   --accent-fg: #fff;
   --border: #d4d4d0;
   --error: #b91c1c;
+  --sunday: #c2410c;
+  --saturday: #1d4ed8;
   color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
@@ -16,6 +18,8 @@
     --accent: #3b82f6;
     --border: #3a3a3a;
     --error: #f87171;
+    --sunday: #fb923c;
+    --saturday: #60a5fa;
   }
 }
 
@@ -138,18 +142,26 @@ button.link {
 
 .events, .candidates { list-style: none; margin: 0; padding: 0; }
 
-.events li {
+.events li { border-bottom: 1px solid var(--border); }
+/* 行ごとタップで編集に入る。行全体を button にして当たり判定を広く取る */
+.events button.row {
   display: grid;
-  grid-template-columns: 6.5rem 1fr auto;
+  grid-template-columns: 5.5rem 1fr;
   gap: .5rem;
   align-items: start;
-  padding: .6rem 0;
-  border-bottom: 1px solid var(--border);
+  width: 100%;
+  margin: 0;
+  padding: .7rem .25rem;
+  text-align: left;
+  background: transparent;
+  color: var(--fg);
+  border: 0;
+  border-radius: .4rem;
+  font-weight: 400;
 }
-.events .when { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .9rem; white-space: pre-line; }
+.events .when { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .9rem; }
 .events .title { font-weight: 600; }
 .events .note { color: var(--muted); font-size: .85rem; }
-.events button { width: auto; margin: 0; padding: .3rem .6rem; font-size: .85rem; }
 
 .candidates li {
   border: 1px solid var(--border);
@@ -239,3 +251,93 @@ summary { cursor: pointer; color: var(--muted); }
 
 /* label で input を包む（field()）: ラベルのタップで入力にフォーカスが移る */
 .candidates label > input { margin-top: .15rem; }
+
+/* --- 月カレンダー --------------------------------------------------------- */
+
+.cal { margin-bottom: .5rem; }
+.cal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+}
+.cal-title { font-weight: 600; font-variant-numeric: tabular-nums; }
+button.cal-nav {
+  width: auto;
+  margin: 0;
+  padding: .35rem 1rem;
+  font-size: 1.25rem;
+  line-height: 1;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+}
+
+.cal-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  margin-top: .5rem;
+}
+.cal-wd { text-align: center; font-size: .75rem; color: var(--muted); padding: .25rem 0; }
+.cal-wd.sun, .cal-day.sun .d { color: var(--sunday); }
+.cal-wd.sat, .cal-day.sat .d { color: var(--saturday); }
+
+button.cal-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: .15rem;
+  width: 100%;
+  min-height: 2.9rem;
+  margin: 0;
+  padding: .3rem 0;
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid transparent;
+  border-radius: .4rem;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+.cal-day.other { opacity: .35; }
+.cal-day.today { border-color: var(--accent); }
+.cal-day[aria-pressed="true"] { background: var(--accent); }
+.cal-day[aria-pressed="true"] .d,
+.cal-day[aria-pressed="true"].sun .d,
+.cal-day[aria-pressed="true"].sat .d { color: var(--accent-fg); }
+.cal-day .dots { display: flex; gap: 2px; height: 5px; }
+.cal-day .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+.cal-day[aria-pressed="true"] .dot { background: var(--accent-fg); }
+
+.day-bar { margin: 1rem 0 .25rem; align-items: baseline; }
+.day-bar h2 { margin: 0; }
+
+/* --- 予定の追加・編集 ----------------------------------------------------- */
+
+.form input[type="text"],
+.form input[type="date"],
+.form input[type="time"],
+.form textarea {
+  width: 100%;
+  font: inherit;
+  padding: .55rem .6rem;
+  margin-bottom: .75rem;
+  border: 1px solid var(--border);
+  border-radius: .4rem;
+  background: transparent;
+  color: var(--fg);
+  -webkit-user-select: text;
+  user-select: text;
+}
+.form label.inline {
+  display: flex;
+  align-items: center;
+  gap: .4rem;
+  font-size: 1rem;
+  margin-bottom: .75rem;
+}
+.form label.inline input { width: 1.2rem; height: 1.2rem; margin: 0; }
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+button.danger { color: var(--error); border-color: var(--error); }
