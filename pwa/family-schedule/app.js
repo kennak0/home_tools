@@ -59,6 +59,8 @@ async function renderEvents() {
       del.className = "secondary";
       del.textContent = "削除";
       del.addEventListener("click", async () => {
+        if (!confirm(`「${ev.title}」（${formatDate(ev.date)}）を削除しますか？`)) return;
+        del.disabled = true;
         await softDeleteEvent(ev.id);
         renderEvents();
       });
@@ -71,29 +73,49 @@ async function renderEvents() {
 
 // --- 読み取り ------------------------------------------------------------------
 
-let candidates = [];
+let importSource = "text"; // "text" | "photo"。保存する予定の source に入れる
+let importGen = 0; // 読み取りの世代。「やめる」や次の写真でインクリメントし、遅れて届いた結果を捨てる
+let ocrAbort = null;
 
-function resetImport(title) {
+function clearPreview() {
+  const preview = $("#import-preview");
+  if (preview.src) URL.revokeObjectURL(preview.src);
+  preview.removeAttribute("src");
+  preview.hidden = true;
+}
+
+function cancelImportWork() {
+  importGen++;
+  ocrAbort?.abort();
+  ocrAbort = null;
+}
+
+function resetImport(title, source) {
+  cancelImportWork();
+  importSource = source;
   $("#import-title").textContent = title;
   setText("#import-status", "");
   setText("#import-error", "");
   $("#import-progress").hidden = true;
-  $("#import-preview").hidden = true;
+  clearPreview();
   $("#candidates").hidden = true;
   $("#import-run").disabled = false;
-  candidates = [];
+  $("#import-save").disabled = false;
   show("import");
 }
 
 function openTextImport(text = "") {
-  resetImport("テキストから読み取る");
+  resetImport("テキストから読み取る", "text");
   $("#import-text").value = text;
   $("#import-text").focus();
 }
 
 // 写真 → 縮小・グレースケール → OCR → textarea へ。ユーザーが直してから解析する
 async function openPhotoImport(file) {
-  resetImport("写真から読み取る");
+  resetImport("写真から読み取る", "photo");
+  const gen = importGen;
+  const abort = new AbortController();
+  ocrAbort = abort;
   $("#import-text").value = "";
   const run = $("#import-run");
   const progress = $("#import-progress");
@@ -101,17 +123,19 @@ async function openPhotoImport(file) {
   try {
     const { preprocess, recognize } = await import("./ocr.js");
     const { blob, width, height } = await preprocess(file);
+    if (gen !== importGen) return; // その間に「やめる」か別の写真
     const preview = $("#import-preview");
-    if (preview.src) URL.revokeObjectURL(preview.src);
     preview.src = URL.createObjectURL(blob);
     preview.hidden = false;
     setText("#import-status", `${width}×${height}px に縮小しました。文字を認識しています…（初回は辞書の読み込みに時間がかかります）`);
     progress.value = 0;
     progress.hidden = false;
     const text = await recognize(blob, (m) => {
+      if (gen !== importGen) return;
       if (m.status === "recognizing text") progress.value = m.progress;
       else if (m.status === "loading language traineddata") setText("#import-status", "辞書を読み込んでいます…（初回だけ）");
-    });
+    }, abort.signal);
+    if (gen !== importGen) return;
     progress.hidden = true;
     $("#import-text").value = text;
     if (!text) {
@@ -121,11 +145,15 @@ async function openPhotoImport(file) {
       runParse();
     }
   } catch (e) {
+    if (gen !== importGen || e.name === "AbortError") return;
     console.error(e);
     progress.hidden = true;
     setText("#import-error", "写真を読み込めませんでした。");
   } finally {
-    run.disabled = false;
+    if (gen === importGen) {
+      run.disabled = false;
+      ocrAbort = null;
+    }
   }
 }
 
@@ -138,7 +166,6 @@ async function runParse() {
   }
   const { parseEvents } = await import("./parse-events.js");
   const { events, unparsed } = parseEvents(text);
-  candidates = events;
   renderCandidates(events, unparsed);
   $("#candidates").hidden = false;
   if (events.length === 0) {
@@ -151,8 +178,8 @@ function field(labelText, input, className = "") {
   const wrap = document.createElement("div");
   wrap.className = className;
   const label = document.createElement("label");
-  label.textContent = labelText;
-  wrap.append(label, input);
+  label.append(labelText, input); // label で包むとタップで input にフォーカスが移る
+  wrap.append(label);
   return wrap;
 }
 
@@ -242,6 +269,8 @@ function readCandidates() {
 
 async function saveCandidates() {
   setText("#import-error", "");
+  const save = $("#import-save");
+  if (save.disabled) return; // 二度押しで重複登録しない
   const rows = readCandidates();
   if (rows.length === 0) {
     setText("#import-error", "追加する予定にチェックを付けてください。");
@@ -251,29 +280,40 @@ async function saveCandidates() {
     setText("#import-error", "日付が空の予定があります。");
     return;
   }
-  const now = Date.now();
-  await putEvents(
-    rows.map((r) => ({
-      id: crypto.randomUUID(),
-      ...r,
-      members: [],
-      remindBefore: null,
-      source: "photo",
-      createdAt: now,
-      updatedAt: now,
-      deleted: false,
-    })),
-  );
-  candidates = [];
-  await renderEvents();
-  show("home");
+  save.disabled = true;
+  try {
+    const now = Date.now();
+    await putEvents(
+      rows.map((r) => ({
+        id: crypto.randomUUID(),
+        ...r,
+        members: [],
+        remindBefore: null,
+        source: importSource,
+        createdAt: now,
+        updatedAt: now,
+        deleted: false,
+      })),
+    );
+    cancelImportWork();
+    clearPreview();
+    await renderEvents();
+    show("home");
+  } catch (e) {
+    console.error(e);
+    setText("#import-error", "保存に失敗しました。");
+  } finally {
+    save.disabled = false;
+  }
 }
 
 // --- 起動 ----------------------------------------------------------------------
 
 async function main() {
+  let unlockedByLogin = false; // #code= の自動解錠が isUnlocked() より先に済んだときに login を出さないため
   mountLogin(panes.login, {
     onUnlocked: async () => {
+      unlockedByLogin = true;
       await renderEvents();
       show("home");
     },
@@ -288,7 +328,8 @@ async function main() {
   $("#import-run").addEventListener("click", runParse);
   $("#import-save").addEventListener("click", saveCandidates);
   $("#import-cancel").addEventListener("click", () => {
-    candidates = [];
+    cancelImportWork();
+    clearPreview();
     show("home");
   });
 
@@ -301,7 +342,7 @@ async function main() {
   });
 
   try {
-    if (await isUnlocked()) {
+    if ((await isUnlocked()) || unlockedByLogin) {
       await renderEvents();
       // iOS ショートカット「画像からテキストを抽出 → URL を開く」用: ?text=<encoded>
       const shared = new URL(location.href).searchParams.get("text");

@@ -3,7 +3,13 @@
 //   node pwa/tools/make-config.mjs \
 //     --out pwa/family-schedule/config.enc \
 //     --passphrase-file ~/.config/home_tools/family-schedule.passphrase \
-//     [--in config.plain.json]
+//     [--in config.plain.json] [--url https://kennak0.github.io/home_tools/family-schedule/] [--qr-only]
+//
+// - 合言葉を埋めたログイン用 QR（SVG）も --passphrase-file と同じディレクトリに書く
+//   （family-schedule-login-qr.svg）。中身は「アプリの URL + #code=合言葉」。iPhone のカメラで
+//   読むと Safari でログイン済みの状態で開き、アプリ内の「QR コードを読み取る」でも読める。
+//   **QR は合言葉そのもの**なので、家族以外に見せない・リポジトリに置かない
+// - --qr-only なら config.enc は書き換えず QR だけ作り直す（salt が変わって差分が出るのを避ける）
 //
 // - 合言葉は画面に出さず --passphrase-file に書く（mode 0600）。ファイルが既にあれば
 //   その合言葉を使い回すので、中身の JSON を変えて作り直しても家族の入れ直しは要らない。
@@ -14,6 +20,10 @@
 import { readFileSync, writeFileSync, mkdirSync, existsSync, chmodSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
+import qrcode from "./vendor/qrcode-generator/qrcode.mjs";
+
+const DEFAULT_URL = "https://kennak0.github.io/home_tools/family-schedule/";
 
 export const FORMAT_VERSION = 1;
 export const PBKDF2_ITERATIONS = 600_000;
@@ -32,12 +42,19 @@ function parseArgs(argv) {
   return args;
 }
 
-// 合言葉: 5 文字 × 4 組、紛らわしい文字（0 o 1 l i）を除いた 31 種 → 約 99 bit
+// 合言葉: 5 文字 × 4 組、紛らわしい文字（0 o 1 l i）を除いた 31 種 → 約 99 bit。
+// 256 は 31 で割り切れないので、剰余の偏りを避けるため 248 以上のバイトは捨てて引き直す
 function generatePassphrase() {
   const alphabet = "abcdefghjkmnpqrstuvwxyz23456789";
-  const bytes = new Uint8Array(20);
-  globalThis.crypto.getRandomValues(bytes);
-  const chars = Array.from(bytes, (b) => alphabet[b % alphabet.length]);
+  const limit = 256 - (256 % alphabet.length); // 248
+  const chars = [];
+  while (chars.length < 20) {
+    const bytes = new Uint8Array(32);
+    globalThis.crypto.getRandomValues(bytes);
+    for (const b of bytes) {
+      if (b < limit && chars.length < 20) chars.push(alphabet[b % alphabet.length]);
+    }
+  }
   return [0, 5, 10, 15].map((i) => chars.slice(i, i + 5).join("")).join("-");
 }
 
@@ -67,9 +84,11 @@ export async function encryptConfig(passphrase, plainObject) {
 }
 
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  if (!args.out || !args["passphrase-file"]) {
-    console.error("usage: make-config.mjs --out <config.enc> --passphrase-file <path> [--in <plain.json>]");
+  const argv = process.argv.slice(2);
+  const qrOnly = argv.includes("--qr-only");
+  const args = parseArgs(argv.filter((a) => a !== "--qr-only"));
+  if ((!args.out && !qrOnly) || !args["passphrase-file"]) {
+    console.error("usage: make-config.mjs --out <config.enc> --passphrase-file <path> [--in <plain.json>] [--url <app url>] [--qr-only]");
     process.exit(2);
   }
   const passFile = resolve(args["passphrase-file"].replace(/^~(?=$|\/)/, homedir()));
@@ -77,6 +96,10 @@ async function main() {
 
   let passphrase;
   let reused = false;
+  if (qrOnly && !existsSync(passFile)) {
+    // 新しい合言葉を作ってしまうと config.enc と食い違う
+    throw new Error(`--qr-only requires an existing passphrase file: ${passFile}`);
+  }
   if (existsSync(passFile)) {
     passphrase = readFileSync(passFile, "utf8").trim();
     if (!passphrase) throw new Error(`${passFile} is empty`);
@@ -88,9 +111,22 @@ async function main() {
     chmodSync(passFile, 0o600);
   }
 
-  const out = await encryptConfig(passphrase, plain);
-  writeFileSync(args.out, JSON.stringify(out, null, 2) + "\n");
-  console.log(`wrote ${args.out} (keys: ${Object.keys(plain).join(", ") || "none"})`);
+  if (!qrOnly) {
+    const out = await encryptConfig(passphrase, plain);
+    writeFileSync(args.out, JSON.stringify(out, null, 2) + "\n", { mode: 0o644 });
+    chmodSync(args.out, 0o644); // 公開前提のファイルだが、他ユーザーから書き換えられない状態にしておく
+    console.log(`wrote ${args.out} (keys: ${Object.keys(plain).join(", ") || "none"})`);
+  }
+
+  // ログイン用 QR。URL の fragment に合言葉を載せる（fragment はサーバに送られない）
+  const url = (args.url ?? DEFAULT_URL).replace(/#.*$/, "");
+  const qr = qrcode(0, "M");
+  qr.addData(`${url}#code=${passphrase}`);
+  qr.make();
+  const qrPath = resolve(dirname(passFile), "family-schedule-login-qr.svg");
+  writeFileSync(qrPath, qr.createSvgTag({ cellSize: 8, margin: 32, scalable: true }) + "\n", { mode: 0o600 });
+  chmodSync(qrPath, 0o600); // 既存ファイルには mode が効かない
+  console.log(`wrote ${qrPath} (login QR; treat it like the passphrase)`);
   console.log(
     reused
       ? `passphrase: reused from ${passFile}`
@@ -98,7 +134,7 @@ async function main() {
   );
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   main().catch((e) => {
     console.error(e.message);
     process.exit(1);

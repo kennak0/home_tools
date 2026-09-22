@@ -3,33 +3,46 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <!-- GitHub Pages はヘッダーを設定できないので CSP は meta で。worker は自分の応答ヘッダーで決まる（この CSP の対象外） -->
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; img-src 'self' blob:; media-src 'self' blob:; worker-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; form-action 'self'">
   <title>家族の予定表</title>
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="予定表">
   <meta name="color-scheme" content="light dark">
-  <!-- standalone 判定はパース中に済ませる。後で付けるとブラウザ用の chrome が一瞬出る -->
-  <script>
-    if (matchMedia("(display-mode: standalone)").matches || navigator.standalone) {
-      document.documentElement.dataset.standalone = "true";
-    }
-  </script>
+  <!-- standalone 判定はパース中に済ませる（同期 script。standalone.js 参照） -->
+  <script src="./standalone.js"></script>
   <link rel="stylesheet" href="./app.css">
 </head>
 <body>
   <main id="app" class="screen">
     <!-- ログイン画面。login.js が unlocked を見て出し分ける -->
-    <section id="login" class="pane" hidden>
+    <section id="login" class="pane login" hidden>
       <h1>家族の予定表</h1>
       <p class="lead">家族の合言葉を入れてください。この端末では 1 回だけ聞きます。</p>
       <form id="login-form" autocomplete="off">
         <label for="passphrase">合言葉</label>
         <input id="passphrase" name="passphrase" type="password" required
                autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
-               inputmode="latin" placeholder="xxxxx-xxxxx-xxxxx-xxxxx">
+               placeholder="xxxxx-xxxxx-xxxxx-xxxxx">
         <button id="login-submit" type="submit">入る</button>
         <p id="login-error" class="error" role="alert" hidden></p>
       </form>
+      <p class="hint">合言葉の QR コードがあれば、カメラで読み取れます。</p>
+      <button id="login-scan" type="button" class="secondary">QR コードを読み取る</button>
+      <label class="file-button secondary" id="login-scan-file" hidden>
+        <input id="login-scan-input" type="file" accept="image/*" hidden>
+        QR コードを撮って読み取る
+      </label>
+      <!-- カメラ映像。startScan() が流し、読めたら止める -->
+      <div id="scanner" hidden>
+        <video id="scanner-video" muted playsinline></video>
+        <p class="hint">QR コードを枠内に入れてください。</p>
+        <button id="scanner-stop" type="button" class="secondary">やめる</button>
+      </div>
+      <p id="login-status" class="hint" hidden></p>
     </section>
 
     <!-- ホーム。保存済みの予定一覧と、読み取りへの入口 -->
@@ -40,7 +53,7 @@
       </header>
       <!-- 写真は input[type=file] で撮影 or 選択。change で ocr.js を dynamic import する -->
       <label class="file-button">
-        <input id="photo-input" type="file" accept="image/*" capture="environment" hidden>
+        <input id="photo-input" type="file" accept="image/*" hidden>
         写真から予定を読み取る
       </label>
       <button id="open-text" type="button" class="secondary">テキストを貼り付けて読み取る</button>

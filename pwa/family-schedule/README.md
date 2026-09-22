@@ -78,7 +78,8 @@ config.enc（公開サイトに置く。中身は AES-GCM で暗号化した JSO
 
 - WebCrypto（`crypto.subtle`）だけで実装できる。ライブラリ不要
 - 合言葉は**端末ごとに 1 回**入力すれば済む。毎回の起動で聞くと「1 秒で開く」
-  が壊れる。設定画面の「ログアウト」で settings を消し、次回また聞く
+  が壊れる。設定画面の「ログアウト」で settings を消し、次回また聞く。
+  **予定（events）は消えない**（端末内のデータ。消すのは設定だけ）
 - `config.enc` は所有者が手元で作る（`pwa/tools/make-config.mjs`。合言葉と
   中身の JSON を渡すと暗号化ファイルを出す）。**合言葉と平文の JSON はリポジトリに
   置かない**。暗号化済みの `config.enc` だけコミットする
@@ -111,13 +112,34 @@ node pwa/tools/make-config.mjs \
   家族の入れ直しは要らない。合言葉を変えるときはファイルを消してから実行する
 - `config.plain.json` は `.gitignore` で除外済み。`config.enc` だけコミットする
 
+### QR コードでログイン
+
+合言葉を手で打たなくて済むように、`make-config.mjs` がログイン用の QR（SVG）も作る。
+中身は `https://kennak0.github.io/home_tools/family-schedule/#code=<合言葉>`。
+
+- **iPhone のカメラで読む** → Safari でアプリが開き、`#code=` の合言葉で自動的に解錠する。
+  fragment はサーバに送られない。読んだら `history.replaceState` で URL から消す。
+  **ただし Safari の閲覧履歴（iCloud で同期される）には fragment 付きの URL が残り得る**。
+  実装では防げないので、気になる端末ではアプリ内の「QR コードを読み取る」を使う（URL を経由しない）
+- `?code=` は受けない（クエリは GitHub Pages のアクセスログに載る経路になる）
+- **アプリ内の「QR コードを読み取る」** → カメラ映像を jsQR（`vendor/jsqr`、端末内）で読む。
+  カメラが使えない（権限拒否・非対応）ときは「QR コードを撮って読み取る」で写真から読む。
+  URL でも合言葉そのものでも受ける
+- **ホーム画面に追加したアプリは Safari と保存領域が別**。カメラアプリで読んで Safari で
+  ログインしても、ホーム画面のアプリはログインされない。家族には「先にホーム画面に追加 →
+  アプリを開いて QR を読み取る」の順で案内する
+- QR は合言葉そのもの。`~/.config/home_tools/family-schedule-login-qr.svg`（0600）に置き、
+  リポジトリに入れない。家族に見せるときは画面に出すか印刷して手渡す。
+  合言葉を変えたら QR も作り直す（`--qr-only` で QR だけ作り直せる）
+
 ### 合言葉の強さ
 
 `config.enc` は公開サイトに置くので、誰でもダウンロードしてオフラインで総当たり
 できる。防げるのは合言葉の長さだけ。
 
-- **ランダムな 5 語以上**（例: `tsukue-hamaki-ringo-kaeru-tsubame`、約 64 bit）か、
-  ランダムな 16 文字以上。人が思いつく短い言葉や生年月日は不可
+- `make-config.mjs` が作る形式は **5 文字 × 4 組の英数字**（例: `stgmd-wx4gp-fpet8-5gyzs`。紛らわしい
+  0/o/1/l/i を除いた 31 種、約 99 bit）。QR と `#code=` はこの形式だけ受ける（`login.js` の
+  `PASSPHRASE_RE`）。別の形式にするなら生成側と両方直す
 - PBKDF2 600,000 回で 1 回の試行に手元の iPhone で 0.5〜1 秒。64 bit なら総当たりは
   現実的でない
 - `make-config.mjs` が合言葉を生成する（自分で考えさせない）
@@ -148,7 +170,7 @@ IndexedDB（DB 名 `family-schedule`）。`localStorage` は使わない。
   members: ["uuid"],     // members.id の配列。空 = 家族全員
   note: "",
   remindBefore: 30,      // 分。null = なし
-  source: "manual",      // "manual" | "photo"（段階 2）
+  source: "manual",      // "manual" | "text"（2a 貼り付け）| "photo"（2b OCR）
   createdAt: 1700000000000,
   updatedAt: 1700000000000,  // 同期の衝突解決用（last-write-wins 予定）
   deleted: false         // tombstone
@@ -171,7 +193,10 @@ pwa/family-schedule/
 ├── index.html           ✓ 起動ページ。standalone 判定の inline script を <head> に置く。ログイン画面と仮のホーム画面
 ├── app.js               ✓ エントリ（ES module）。ログイン / ホーム（予定一覧）/ 読み取り / 設定の配線
 ├── app.css              ✓ 共通スタイル（safe-area、100dvh の flex column、iOS の選択バー対策）
-├── login.js             ✓ 共有コード入力 → PBKDF2 → config.enc 復号 → settings 保存。ログアウト
+├── standalone.js        ✓ standalone 判定（head で同期に読む。CSP のため inline にしない）
+├── login.js             ✓ 共有コード入力 → PBKDF2 → config.enc 復号 → settings 保存。ログアウト。#code= と QR の受け口
+├── qr-scan.js           ✓ カメラ映像 / 写真から QR を読む（jsQR）。押されたときだけ読む
+├── vendor/jsqr/         ✓ jsQR 1.4.0（UMD、Apache-2.0）。VENDORED.md
 ├── config.enc           ✓ 暗号化済み設定（これだけコミットする。平文と合言葉は置かない）
 ├── db.js                ✓ IndexedDB ラッパ（events / members / settings。v1 で全ストア作成済み）
 ├── calendar.js            月表示
@@ -183,7 +208,8 @@ pwa/family-schedule/
 ├── vendor/tesseract/    ✓ 段階 2b。Tesseract.js 7.0.0 本体・worker・WASM（simd / 非 simd の LSTM 版）・jpn.traineddata.gz（precache 対象外。VENDORED.md）
 
 pwa/tools/
-├── make-config.mjs      ✓ config.enc の生成（「ログイン」参照）
+├── make-config.mjs      ✓ config.enc とログイン用 QR の生成（「ログイン」参照）
+├── vendor/qrcode-generator/ ✓ QR の生成に使う（MIT）。配信物ではない
 ├── test-parse-events.mjs ✓ parse-events.js のテスト。`node pwa/tools/test-parse-events.mjs`
 ├── serve.mjs            ✓ 開発用の静的サーバ。`node pwa/tools/serve.mjs` で pwa/ を http://localhost:8080/ に
 ├── slow-proxy.mjs         応答前に sleep するリバースプロキシ（遅い回線の再現）
@@ -201,6 +227,7 @@ pwa/tools/
 | URL | `https://kennak0.github.io/home_tools/family-schedule/`（リポジトリ `kennak0/home_tools`。git で追跡するのは `pwa/` だけなので、このリポジトリをそのまま配信用にする）。無料プランで Pages を使うには**公開リポジトリ**にする必要がある。公開したくなければ GitHub Pro にするか Cloudflare Pages にする |
 | オリジン | `kennak0.github.io` は他の Pages サイトと共有のオリジン。**後からカスタムドメインに変えるとホーム画面のアイコンが古いオリジンに残る**（SKILL.md「Moving an app to another origin」）。家族に配る前にドメインを決める |
 | `scope` / `start_url` | **末尾スラッシュあり** `/home_tools/family-schedule/`。SKILL.md は「スラッシュなし」を勧めるが、それには `Service-Worker-Allowed` ヘッダーが要り、GitHub Pages はレスポンスヘッダーを設定できない。Pages はスラッシュなしの URL を 301 でスラッシュありに飛ばすので、実害はない |
+| `config.enc` と SW | `login.js` は `fetch(config.enc, { cache: "no-cache" })` だが、cache-first の SW はこれを素通りさせない。SW を入れるときは config.enc を precache に含めて worker のバージョンで更新するか、SW 側で pass-through にするか決める |
 | `sw.js` の HTTP キャッシュ | 全ファイルに `Cache-Control: max-age=600` が付き、変更できない。worker 本体の更新チェックはブラウザが HTTP キャッシュを迂回するので問題ないが、`sw.js` から `importScripts()` したファイルは 10 分キャッシュされる。**`sw.js` は 1 ファイルにまとめ、`importScripts` を使わない** |
 | ハッシュ付きアセットの `immutable` | 付けられない。`max-age=600` のまま。precache は worker のバージョンで管理するので実害なし |
 | 公開範囲 | サイトは誰でも開ける。段階 1 はデータが端末内だけなので問題ない。段階 3 で同期を入れるときは別途サーバと認証が要る（Pages にはサーバがない） |
@@ -212,6 +239,15 @@ pwa/tools/
 （`Service-Worker-Allowed`, `Cache-Control` とも）。段階 3 の Workers + D1、
 段階 4 の Push 送信もここに置ける。GitHub Pages で始めて段階 3 で移るなら、
 オリジンが変わるので**家族がインストールする前に決める**。
+
+## CSP と GitHub Pages
+
+レスポンスヘッダーを設定できないので `<meta http-equiv="Content-Security-Policy">` で書く
+（`index.html`）。`script-src 'self' 'wasm-unsafe-eval'`、`img-src`/`media-src` に `blob:`
+（プレビュー・カメラ）、それ以外は `'self'`。インライン script を置かないよう standalone 判定は
+`standalone.js` に出した。worker（Tesseract）は自分の応答ヘッダーで CSP が決まるので meta の対象外。
+`frame-ancestors` は meta では効かない（クリックジャッキング対策は Cloudflare Pages の `_headers` 待ち。
+合言葉が攻撃者に渡る経路ではないので優先度は低い）。
 
 ## 非交渉の要件（記事と SKILL.md から）
 
@@ -283,8 +319,13 @@ pwa/tools/
   `10/3 (土) |遠足 お弁当・水筒。9:00 集合` のように行が保たれる
 - 日本語出力は文字ごとに空白が入る。CJK 同士の単一空白は詰め、2 つ以上（列の区切り）だけ
   1 つ残す。よくある読み違い（`(士)` → `(土)`、時刻の間の `て` `<>` → `~`）も `ocr.js` で直す
-- 辞書と WASM は Tesseract.js が IndexedDB（`keyval-store`）に置いて 2 回目から再利用する。
-  Cache API ではないが役割は同じ。初回は約 9.5MB の取得が要る
+- 辞書（traineddata）だけは Tesseract.js が IndexedDB（`keyval-store`）に置いて 2 回目から
+  再利用する。**`worker.min.js` と `*.wasm.js`（3.9MB）は HTTP キャッシュ頼み**なので、
+  service worker を入れるときは `vendor/tesseract/*` を初回利用時にキャッシュする runtime cache に
+  する（precache には入れない）。`workerBlobURL: false` なので worker の fetch も SW に見える
+- `ctx.filter` は Safari 18 以降。無い端末は画素を直接グレースケール化する（`ocr.js`）。
+  EXIF の向きは `createImageBitmap(file, { imageOrientation: "from-image" })` で反映し、
+  非対応なら `<img>` にフォールバック
 - 精度の限界はアプリ内で正直に出す。「読めなかった行」を残して、ユーザーが直せる UI にする
 - Tesseract も機械学習モデル（LSTM）だが、端末内で完結し外部送信がない。外部の AI API とはそこが違う
 

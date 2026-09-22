@@ -23,10 +23,20 @@ export function openDb() {
           db.createObjectStore("settings", { keyPath: "key" });
         }
       };
-      req.onsuccess = () => resolve(req.result);
+      req.onsuccess = () => {
+        const db = req.result;
+        // 別タブが新しい DB version で開こうとしたら閉じて譲る（upgrade を block しない）
+        db.onversionchange = () => {
+          db.close();
+          dbPromise = undefined;
+        };
+        resolve(db);
+      };
       req.onerror = () => reject(req.error);
       req.onblocked = () => reject(new Error("IndexedDB upgrade blocked"));
     });
+    // 失敗を持ち越さない（プライベートブラウズ解除後などに再試行できるように）
+    dbPromise.catch(() => { dbPromise = undefined; });
   }
   return dbPromise;
 }
@@ -91,14 +101,8 @@ export async function softDeleteEvent(id) {
   const db = await openDb();
   const tx = db.transaction("events", "readwrite");
   const store = tx.objectStore("events");
+  // get の onsuccess から同じ tx で put する。間に別の await（fetch 等）を挟むと tx が閉じて TransactionInactiveError
   const ev = await request(store.get(id));
   if (ev) store.put({ ...ev, deleted: true, updatedAt: Date.now() });
-  await done(tx);
-}
-
-export async function deleteSetting(key) {
-  const db = await openDb();
-  const tx = db.transaction("settings", "readwrite");
-  tx.objectStore("settings").delete(key);
   await done(tx);
 }

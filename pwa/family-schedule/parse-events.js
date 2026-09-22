@@ -7,7 +7,7 @@
 const WEEKDAYS = "日月火水木金土";
 const GRACE_DAYS = 30; // 年が無い日付は「今日以降で最も近い」。ただし 30 日前までは今年扱い
 
-// 全角 → 半角、揺れのある記号を寄せる
+// 全角 → 半角、揺れのある記号を寄せる。和暦・囲み曜日・「時半」もここで西暦・通常表記に
 export function normalize(text) {
   return text
     .replace(/[０-９]/g, (c) => String.fromCharCode(c.charCodeAt(0) - 0xfee0))
@@ -17,25 +17,38 @@ export function normalize(text) {
     .replace(/[）]/g, ")")
     .replace(/[〜～~‐‑–—―ｰ]/g, "~")
     .replace(/[　\t]+/g, " ")
-    .replace(/\r/g, "");
+    .replace(/\r/g, "")
+    // 和暦: 令和8年 / R8. → 2026年 / 2026.
+    .replace(/令和\s*(\d{1,2})\s*年/g, (_, y) => `${2018 + Number(y)}年`)
+    .replace(/(?<![A-Za-z])R\s*(\d{1,2})\s*[.年]/g, (_, y) => `${2018 + Number(y)}.`)
+    // ㈪〜㈰（U+322A–U+3230）→ (月)〜(日)
+    .replace(/[㈪-㈰]/g, (c) => `(${"月火水木金土日"[c.charCodeAt(0) - 0x322a]})`)
+    .replace(/時半/g, "時30分")
+    // 行頭の丸数字・箇条書き記号
+    .replace(/^[\s①-⑳●○■□◆◇・*\-]+(?=\S)/gm, "");
 }
 
-const RE_DATE_FULL = /(\d{4})[/年.](\d{1,2})[/月.](\d{1,2})日?/g;
-const RE_DATE_MD = /(?<![\d/:])(\d{1,2})[/月](\d{1,2})日?(?![\d/:])/g;
-const RE_DATE_D = /(?<![\d/:月])(\d{1,2})日(?!間|後|前|以|目)/g;
-const RE_WEEKDAY = /\s*\(?\s*([月火水木金土日])\s*(?:曜日?)?\s*\)?/y;
+// 「日」を許すのは 月 表記のときだけ。「10/3 日帰り遠足」の 日 を食わないため
+const RE_DATE_FULL = /(?:(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日?|(\d{4})\s*([/.\-])\s*(\d{1,2})\s*\5\s*(\d{1,2}))/g;
+const RE_DATE_MD = /(?<![\d/:])(?:(\d{1,2})\s*\/\s*(\d{1,2})|(\d{1,2})\s*月\s*(\d{1,2})\s*日?)(?![\d/:])/g;
+const RE_DATE_D = /(?<![\d/:月])(\d{1,2})\s*日(?!間|後|前|以|目)/g;
+// 曜日は「(土)」のように括弧付きか「土曜」のように 曜 が続くときだけ。裸の 1 字はタイトル（水泳、火災、日帰り）を食う
+const RE_WEEKDAY = /\s*(?:\(\s*([月火水木金土日])\s*(?:曜日?)?\s*\)|([月火水木金土日])曜日?)/y;
 const RE_MONTH_HEADER = /^(?:(\d{4})年)?\s*(\d{1,2})月(?!\d|\s*\d)/;
-const RE_TIME = /(午前|午後)?(\d{1,2})(?::(\d{2})|時(\d{1,2})?分?)(?!間|日|月|年)/g;
-const RE_TIME_RANGE = /(午前|午後)?(\d{1,2})(?::(\d{2})|時(\d{1,2})?分?)\s*~\s*(午前|午後)?(\d{1,2})(?::(\d{2})|時(\d{1,2})?分?)/g;
+const TIME_CORE = "(午前|午後)?(\\d{1,2})(?::(\\d{2})|時(\\d{1,2})?分?)";
+const TIME_TAIL = "(?!間|日|月|年|限|\\d)";
+const RE_TIME = new RegExp(`${TIME_CORE}${TIME_TAIL}`, "g");
+const RE_TIME_RANGE = new RegExp(`${TIME_CORE}\\s*[~\\-]\\s*${TIME_CORE}${TIME_TAIL}`, "g");
 
 const pad = (n) => String(n).padStart(2, "0");
 
 function toTime(ampm, h, m) {
   let hour = Number(h);
+  const minute = Number(m ?? 0);
   if (ampm === "午後" && hour < 12) hour += 12;
   if (ampm === "午前" && hour === 12) hour = 0;
-  if (hour > 23) return null;
-  return `${pad(hour)}:${pad(Number(m ?? 0))}`;
+  if (hour > 23 || minute > 59) return null;
+  return `${pad(hour)}:${pad(minute)}`;
 }
 
 function isValidDate(y, m, d) {
@@ -56,26 +69,33 @@ function weekdayOf(y, m, d) {
   return WEEKDAYS[new Date(y, m - 1, d).getDay()];
 }
 
+// 見出しの年は、見出しの月以降の月日にだけ当てる。「2026年12月の予定」の下の 1/8 は翌年
+function yearFor(mo, day, context, today) {
+  if (context.year && (!context.month || mo >= context.month)) return context.year;
+  return resolveYear(mo, day, today);
+}
+
 // 行内の日付をすべて位置付きで拾う。context.month は「N日」だけの行に使う
-function findDates(line, context) {
+function findDates(line, context, today) {
   const found = [];
   for (const m of line.matchAll(RE_DATE_FULL)) {
-    found.push({ index: m.index, length: m[0].length, y: Number(m[1]), m: Number(m[2]), d: Number(m[3]), hasYear: true });
+    const [y, mo, d] = m[1] ? [m[1], m[2], m[3]] : [m[4], m[6], m[7]];
+    found.push({ index: m.index, length: m[0].length, y: Number(y), m: Number(mo), d: Number(d), hasYear: true });
   }
   const covered = (i) => found.some((f) => i >= f.index && i < f.index + f.length);
   for (const m of line.matchAll(RE_DATE_MD)) {
     if (covered(m.index)) continue;
-    const mo = Number(m[1]);
-    const d = Number(m[2]);
+    const mo = Number(m[1] ?? m[3]);
+    const d = Number(m[2] ?? m[4]);
     if (mo < 1 || mo > 12 || d < 1 || d > 31) continue;
-    found.push({ index: m.index, length: m[0].length, y: context.year, m: mo, d, hasYear: false });
+    found.push({ index: m.index, length: m[0].length, y: yearFor(mo, d, context, today), m: mo, d, hasYear: false });
   }
   if (context.month) {
     for (const m of line.matchAll(RE_DATE_D)) {
       if (covered(m.index)) continue;
       const d = Number(m[1]);
       if (d < 1 || d > 31) continue;
-      found.push({ index: m.index, length: m[0].length, y: context.year, m: context.month, d, hasYear: false });
+      found.push({ index: m.index, length: m[0].length, y: yearFor(context.month, d, context, today), m: context.month, d, hasYear: false });
     }
   }
   return found.sort((a, b) => a.index - b.index);
@@ -118,17 +138,25 @@ function tidy(s) {
     .trim();
 }
 
-// 残った文字列を タイトル / メモ に分ける。最初の空白か句読点まではタイトル
-function splitTitle(rest) {
-  const cleaned = rest
+function stripEdges(s) {
+  return s
     .replace(/^[\s|｜・:、,。.~()\-]+/, "")
     .replace(/[\s|｜・:、,~(\-]+$/, "")
     .replace(/\(\s*\)/g, "")
     .trim();
+}
+
+// 残った文字列を タイトル / メモ に分ける。最初の空白か句読点まではタイトル
+function splitTitle(rest) {
+  const cleaned = stripEdges(rest);
   if (!cleaned) return { title: "", note: "" };
   const m = cleaned.match(/^(.+?)(?:\s+|(?<=[。])|\s*[|｜]\s*)(.*)$/s);
   if (!m) return { title: cleaned, note: "" };
   return { title: m[1].trim(), note: tidy(m[2]) };
+}
+
+function joinNote(...parts) {
+  return parts.filter(Boolean).join("、");
 }
 
 export function parseEvents(text, { today = new Date() } = {}) {
@@ -140,18 +168,17 @@ export function parseEvents(text, { today = new Date() } = {}) {
     const line = raw.trim();
     if (!line) continue;
 
-    // 「10月の予定」「2026年10月」のような見出し → 月の文脈にする
+    const dates = findDates(line, context, today);
+    const times = findTimes(line);
+
+    // 「10月の予定」「2026年10月」のような見出し → 月の文脈にする。行自体は unparsed にも残す
     const header = line.match(RE_MONTH_HEADER);
-    if (header && !RE_DATE_MD.test(line) && !/\d{1,2}日/.test(line)) {
-      RE_DATE_MD.lastIndex = 0;
+    if (header && dates.length === 0) {
       context.month = Number(header[2]);
       if (header[1]) context.year = Number(header[1]);
+      unparsed.push(line);
       continue;
     }
-    RE_DATE_MD.lastIndex = 0;
-
-    const dates = findDates(line, context);
-    const times = findTimes(line);
 
     if (dates.length === 0) {
       // 時刻だけの行は直前の予定の続き
@@ -160,9 +187,8 @@ export function parseEvents(text, { today = new Date() } = {}) {
         prev.start = times[0].start;
         prev.end = times[0].end;
         prev.allDay = false;
-        const extra = splitTitle(cut(line, times));
-        const note = [extra.title, extra.note].filter(Boolean).join(" ");
-        if (note) prev.note = [prev.note, note].filter(Boolean).join("、");
+        const extra = splitTitle(cut(line, [times[0]]));
+        prev.note = joinNote(prev.note, tidy([extra.title, extra.note].filter(Boolean).join(" ")));
       } else {
         unparsed.push(line);
       }
@@ -171,32 +197,63 @@ export function parseEvents(text, { today = new Date() } = {}) {
 
     const first = dates[0];
     const spans = [{ index: first.index, length: first.length }];
-    let periodNote = "";
-    // 期間（10/3~10/5）は開始日 1 件にまとめ、メモに終了日を残す
-    if (dates.length >= 2) {
-      const between = line.slice(first.index + first.length, dates[1].index);
-      if (/^\s*~\s*$/.test(between)) {
-        const last = dates[1];
-        spans.push({ index: first.index + first.length, length: last.index + last.length - (first.index + first.length) });
-        periodNote = `~${last.m}/${last.d} まで`;
-      }
-    }
-    // 日付直後の曜日
-    RE_WEEKDAY.lastIndex = spans.at(-1).index + spans.at(-1).length;
-    const wd = RE_WEEKDAY.exec(line);
+    const notes = [];
+
+    // 日付直後の曜日（括弧付きか「曜」付きだけ）
+    const weekdayAfter = (pos) => {
+      RE_WEEKDAY.lastIndex = pos;
+      const wd = RE_WEEKDAY.exec(line);
+      return wd ? { weekday: wd[1] ?? wd[2], index: wd.index, length: wd[0].length } : null;
+    };
     let weekday = null;
-    if (wd && wd[1]) {
-      weekday = wd[1];
-      spans.push({ index: wd.index, length: wd[0].length });
+    const wd1 = weekdayAfter(first.index + first.length);
+    if (wd1) {
+      weekday = wd1.weekday;
+      spans.push({ index: wd1.index, length: wd1.length });
     }
 
-    const year = first.hasYear ? first.y : (first.y ?? resolveYear(first.m, first.d, today));
+    // 期間（10/3(土)~10/5(月)）は開始日 1 件にまとめ、メモに終了日を残す。
+    // 「・」「、」で並んだ複数日付は 2 つ目以降をメモに落とす（別々の予定にはしない）
+    let cursor = spans.at(-1).index + spans.at(-1).length;
+    for (let i = 1; i < dates.length; i++) {
+      const d = dates[i];
+      const between = line.slice(cursor, d.index);
+      const wdN = weekdayAfter(d.index + d.length);
+      const label = `${d.m}/${d.d}${wdN ? `(${wdN.weekday})` : ""}`;
+      if (/^\s*[~\-]\s*$/.test(between)) {
+        notes.push(`~${label} まで`);
+      } else if (/^\s*[・、,]\s*$/.test(between)) {
+        notes.push(`${label} も`);
+      } else {
+        break; // 文中の日付（「雨天は 10/19 に順延」）はメモの文章として残す
+      }
+      const end = wdN ? wdN.index + wdN.length : d.index + d.length;
+      spans.push({ index: cursor, length: end - cursor });
+      cursor = end;
+    }
+
+    const year = first.y;
     const valid = isValidDate(year, first.m, first.d);
     const date = valid ? `${year}-${pad(first.m)}-${pad(first.d)}` : "";
 
+    // 時刻は最初の 1 つを予定に使い、残り（開門 8:30 開会 9:00 など）はメモに残す
     const time = times[0] ?? null;
-    const rest = cut(line, [...spans, ...times]);
-    const { title, note } = splitTitle(rest);
+    const rest = cut(line, time ? [...spans, time] : spans);
+
+    // 日付より前の文字列（「1年生」「第2回」）はメモに回し、日付より後ろをタイトルにする
+    const firstCut = Math.min(...spans.map((s) => s.index));
+    const beforeLen = firstCut; // cut は元の位置を保つので、先頭 firstCut 文字が「日付より前」
+    const before = stripEdges(rest.slice(0, beforeLen));
+    const after = rest.slice(beforeLen);
+    let { title, note } = splitTitle(after);
+    if (!title && before) {
+      // 「第2回 保護者会 10/3(土)」: 日付の前しか無ければ最後の語をタイトル、手前をメモに
+      const chunks = before.split(/\s+/);
+      title = chunks.pop();
+      note = tidy(chunks.join(" "));
+    } else if (before) {
+      notes.unshift(before);
+    }
 
     let confidence = "medium";
     if (!valid || !title) confidence = "low";
@@ -209,7 +266,7 @@ export function parseEvents(text, { today = new Date() } = {}) {
       start: time?.start ?? null,
       end: time?.end ?? null,
       allDay: !time,
-      note: [note, periodNote].filter(Boolean).join("、"),
+      note: joinNote(...notes.filter((n) => !n.endsWith(" まで") && !n.endsWith(" も")), note, ...notes.filter((n) => n.endsWith(" まで") || n.endsWith(" も"))),
       confidence,
       sourceLine: raw.trim(),
     });

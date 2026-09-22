@@ -17,19 +17,60 @@ function hasWasmSimd() {
   }
 }
 
+// 画像ファイルを描画できる形にする。EXIF の向き（iPhone の縦写真）を反映する。
+// createImageBitmap が無い / 失敗する古い iOS は <img> にフォールバック
+async function loadImage(file) {
+  if (typeof createImageBitmap === "function") {
+    try {
+      return await createImageBitmap(file, { imageOrientation: "from-image" });
+    } catch {
+      /* 下へ */
+    }
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    return img;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// グレースケール + コントラスト。ctx.filter は Safari 18 以降なので、無ければ画素を直接触る
+function grayscale(ctx, w, h, contrast = 1.2) {
+  if ("filter" in ctx) {
+    ctx.filter = `grayscale(1) contrast(${contrast})`;
+    return (draw) => draw();
+  }
+  return (draw) => {
+    draw();
+    const img = ctx.getImageData(0, 0, w, h);
+    const p = img.data;
+    for (let i = 0; i < p.length; i += 4) {
+      let v = 0.299 * p[i] + 0.587 * p[i + 1] + 0.114 * p[i + 2];
+      v = Math.max(0, Math.min(255, (v - 128) * contrast + 128));
+      p[i] = p[i + 1] = p[i + 2] = v;
+    }
+    ctx.putImageData(img, 0, 0);
+  };
+}
+
 // 長辺 MAX_EDGE に縮小してグレースケール化。canvas を通すので EXIF（位置情報）は落ちる
 export async function preprocess(file, maxEdge = MAX_EDGE) {
-  const bitmap = await createImageBitmap(file);
-  const scale = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
-  const w = Math.round(bitmap.width * scale);
-  const h = Math.round(bitmap.height * scale);
+  const src = await loadImage(file);
+  const sw = src.width ?? src.naturalWidth;
+  const sh = src.height ?? src.naturalHeight;
+  const scale = Math.min(1, maxEdge / Math.max(sw, sh));
+  const w = Math.round(sw * scale);
+  const h = Math.round(sh * scale);
   const canvas = document.createElement("canvas");
   canvas.width = w;
   canvas.height = h;
-  const ctx = canvas.getContext("2d");
-  ctx.filter = "grayscale(1) contrast(1.2)";
-  ctx.drawImage(bitmap, 0, 0, w, h);
-  bitmap.close?.();
+  const ctx = canvas.getContext("2d", { willReadFrequently: true });
+  grayscale(ctx, w, h)(() => ctx.drawImage(src, 0, 0, w, h));
+  src.close?.();
   const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.9));
   return { blob, width: w, height: h };
 }
@@ -49,8 +90,10 @@ export function cleanupJapanese(text) {
     .trim();
 }
 
-// 画像 1 枚を認識してテキストを返す。onProgress({ status, progress }) で進捗を出す
-export async function recognize(blob, onProgress) {
+// 画像 1 枚を認識してテキストを返す。onProgress({ status, progress }) で進捗を出す。
+// signal（AbortSignal）が abort されたら worker を止めて AbortError で reject する
+export async function recognize(blob, onProgress, signal) {
+  if (signal?.aborted) throw new DOMException("aborted", "AbortError");
   // ESM ビルドは default export だけ（中身は UMD を包んだもの）
   const { createWorker } = (await import("./vendor/tesseract/tesseract.esm.min.js")).default;
   const worker = await createWorker("jpn", 1 /* LSTM only */, {
@@ -61,12 +104,17 @@ export async function recognize(blob, onProgress) {
     workerBlobURL: false,
     logger: (m) => onProgress?.(m),
   });
+  const onAbort = () => worker.terminate();
+  signal?.addEventListener("abort", onAbort, { once: true });
   try {
+    if (signal?.aborted) throw new DOMException("aborted", "AbortError");
     // PSM 4（1 列・行ごとに解析）。既定の 6（1 ブロック）だと表の行が崩れ、3（自動）だとセルがばらばらの行になる
     await worker.setParameters({ tessedit_pageseg_mode: "4", preserve_interword_spaces: "1" });
     const { data } = await worker.recognize(blob);
+    if (signal?.aborted) throw new DOMException("aborted", "AbortError");
     return cleanupJapanese(data.text);
   } finally {
-    await worker.terminate();
+    signal?.removeEventListener("abort", onAbort);
+    await worker.terminate().catch(() => {});
   }
 }

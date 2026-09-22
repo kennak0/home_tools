@@ -57,26 +57,15 @@ body {
   width: 100%;
   max-width: 28rem;
   margin: 0 auto;
-  padding-top: 8vh;
 }
+.pane.login { padding-top: 8vh; }
 
 h1 { font-size: 1.5rem; margin: 0 0 .5rem; }
 .lead { color: var(--muted); margin: 0 0 1.5rem; }
 
 label { display: block; font-size: .9rem; margin-bottom: .25rem; }
 
-input[type="password"] {
-  width: 100%;
-  font: inherit;
-  font-family: ui-monospace, Menlo, monospace;
-  padding: .75rem;
-  border: 1px solid var(--border);
-  border-radius: .5rem;
-  background: transparent;
-  color: var(--fg);
-  -webkit-user-select: text;
-  user-select: text;
-}
+input[type="password"] { font-family: ui-monospace, Menlo, monospace; }
 
 button {
   display: block;
@@ -113,7 +102,6 @@ button.secondary {
 
 h2 { font-size: 1.05rem; margin: 1.5rem 0 .5rem; }
 .hint { color: var(--muted); font-size: .9rem; margin: .5rem 0; }
-.state { color: var(--muted); font-weight: 400; }
 
 button.link {
   display: inline;
@@ -137,7 +125,6 @@ button.link {
   background: var(--accent);
   color: var(--accent-fg);
 }
-.file-button.disabled { opacity: .6; pointer-events: none; }
 
 #import-preview {
   display: block;
@@ -201,8 +188,7 @@ button.link {
 .candidates input[type="text"],
 .candidates input[type="date"],
 .candidates input[type="time"],
-input[type="password"],
-select {
+input[type="password"] {
   width: 100%;
   font: inherit;
   padding: .55rem .6rem;
@@ -233,3 +219,23 @@ progress { width: 100%; height: .5rem; margin: .25rem 0 .75rem; }
 .unparsed { margin: .5rem 0 0; padding-left: 1.25rem; color: var(--muted); font-size: .9rem; }
 details { margin: .5rem 0 1rem; }
 summary { cursor: pointer; color: var(--muted); }
+
+#scanner-video {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border-radius: .5rem;
+  background: #000;
+  margin-top: 1rem;
+}
+.file-button.secondary {
+  background: transparent;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  font-weight: 400;
+  margin-top: 1rem;
+}
+
+/* label で input を包む（field()）: ラベルのタップで入力にフォーカスが移る */
+.candidates label > input { margin-top: .15rem; }

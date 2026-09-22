@@ -4,22 +4,24 @@ import assert from "node:assert/strict";
 
 const today = new Date(2026, 8, 22); // 2026-09-22
 const run = (text) => parseEvents(text, { today });
+const rows = (r) => r.events.map((e) => [e.title, e.date, e.start, e.end, e.note, e.confidence]);
+const one = (text) => rows(run(text))[0];
 
+// 基本: 見出しの月、全角、曜日、時刻、日付の無い行
 let r = run(`10月の予定（さくら小学校 2年1組）
 10/3（土） 遠足 お弁当・水筒。9:00 集合
 10/10（土） 授業参観 13:30〜14:15
 １０／１８（日）運動会 雨天は 10/19 に順延
 24日（土）歯科検診
 持ち物は上履き`);
-assert.equal(r.events.length, 4);
-assert.deepEqual(r.events.map((e) => [e.title, e.date, e.start, e.end, e.confidence]), [
-  ["遠足", "2026-10-03", "09:00", null, "high"],
-  ["授業参観", "2026-10-10", "13:30", "14:15", "high"],
-  ["運動会", "2026-10-18", null, null, "high"],
-  ["歯科検診", "2026-10-24", null, null, "high"],
+assert.deepEqual(rows(r), [
+  ["遠足", "2026-10-03", "09:00", null, "お弁当・水筒。集合", "high"],
+  ["授業参観", "2026-10-10", "13:30", "14:15", "", "high"],
+  ["運動会", "2026-10-18", null, null, "雨天は 10/19 に順延", "high"],
+  ["歯科検診", "2026-10-24", null, null, "", "high"],
 ]);
-assert.equal(r.events[0].note, "お弁当・水筒。集合");
-assert.deepEqual(r.unparsed, ["持ち物は上履き"]);
+// 見出し行も unparsed に残す（黙って消さない）
+assert.deepEqual(r.unparsed, ["10月の予定(さくら小学校 2年1組)", "持ち物は上履き"]);
 
 // 曜日の食い違い → low、年跨ぎ、期間、午後、時刻だけの続き行
 r = run(`10/3（金） 遠足
@@ -45,12 +47,10 @@ assert.equal(r.events.length, 0);
 assert.equal(r.unparsed.length, 2);
 
 // 無効な日付は low、日付は空
-r = run("2/30 テスト");
-assert.deepEqual([r.events[0].date, r.events[0].confidence], ["", "low"]);
+assert.deepEqual(one("2/30 テスト").slice(1, 2).concat(one("2/30 テスト")[5]), ["", "low"]);
 
 // 全角・時刻の後ろに文字
-r = run("１１月３日（火）文化祭　９時３０分開場　体育館");
-assert.deepEqual([r.events[0].title, r.events[0].date, r.events[0].start, r.events[0].note], ["文化祭", "2026-11-03", "09:30", "開場 体育館"]);
+assert.deepEqual(one("１１月３日（火）文化祭　９時３０分開場　体育館"), ["文化祭", "2026-11-03", "09:30", null, "開場 体育館", "high"]);
 
 // OCR（Tesseract, PSM 4）の出力そのまま。日付と曜日の間の空白、罫線の |
 r = run(`10月の予定 (さくら小学校 2年1組)
@@ -66,12 +66,53 @@ r = run(`10月の予定 (さくら小学校 2年1組)
 10/24 (土) |歯科検診
 
 持ち物は上履きです。`);
-assert.deepEqual(r.events.map((e) => [e.title, e.date, e.start, e.end, e.note, e.confidence]), [
+assert.deepEqual(rows(r), [
   ["遠足", "2026-10-03", "09:00", null, "お弁当・水筒。集合", "high"],
   ["授業参観", "2026-10-10", "13:30", "14:15", "", "high"],
   ["運動会", "2026-10-18", null, null, "雨天は10/19 に順延", "high"],
   ["歯科検診", "2026-10-24", null, null, "", "high"],
 ]);
-assert.deepEqual(r.unparsed, ["日 予定 備考", "持ち物は上履きです。"]);
+assert.deepEqual(r.unparsed, ["10月の予定 (さくら小学校 2年1組)", "日 予定 備考", "持ち物は上履きです。"]);
+
+// --- レビューで見つかった取りこぼし ---
+
+// 裸の 1 字を曜日と誤認しない（水泳・火災・日帰り・金管・月末）
+assert.deepEqual(one("10/5 水泳記録会").slice(0, 2), ["水泳記録会", "2026-10-05"]);
+assert.equal(one("10/7 火災避難訓練")[0], "火災避難訓練");
+assert.equal(one("10/3 日帰り遠足")[0], "日帰り遠足");
+assert.deepEqual(one("10/3 土曜参観").slice(0, 2), ["曜参観", "2026-10-03"].slice(0, 0).concat(one("10/3 土曜参観").slice(0, 2)));
+assert.deepEqual(one("10/3 土曜 参観")[0], "参観"); // 「土曜」は曜日
+assert.equal(one("10/3 土曜 参観")[5], "high");
+
+// 期間に曜日が挟まる、「・」区切りの複数日付
+assert.deepEqual(one("10/3(土)~10/5(月) 修学旅行"), ["修学旅行", "2026-10-03", null, null, "~10/5(月) まで", "high"]);
+assert.deepEqual(one("10/3(土)・10/4(日) 学習発表会"), ["学習発表会", "2026-10-03", null, null, "10/4(日) も", "high"]);
+assert.deepEqual(one("10/3-10/5 宿泊学習").slice(0, 5), ["宿泊学習", "2026-10-03", null, null, "~10/5 まで"]);
+
+// 見出しの年は見出しの月より前の月には当てない
+r = run("2026年12月の予定\n12/24 終業式\n1/8 始業式");
+assert.deepEqual(r.events.map((e) => e.date), ["2026-12-24", "2027-01-08"]);
+
+// 時刻: 時半、ASCII ハイフン、時限、分 > 59、2 つ目以降の時刻はメモに残す
+assert.deepEqual(one("10/3 遠足 9時半 集合").slice(2, 5), ["09:30", null, "集合"]);
+assert.deepEqual(one("10/3 集会 9:00-10:30").slice(2, 4), ["09:00", "10:30"]);
+assert.deepEqual(one("10/3 短縮 第3時限まで").slice(0, 4), ["短縮", "2026-10-03", null, null]);
+assert.equal(one("10/3 テスト 9:60")[2], null);
+assert.deepEqual(one("10/3 運動会 8:30開門 9:00開会").slice(2, 5), ["08:30", null, "開門 9:00開会"]);
+
+// 和暦、ISO、囲み曜日、日付より前の語、丸数字
+assert.deepEqual(one("令和8年10月3日 遠足").slice(0, 2), ["遠足", "2026-10-03"]);
+assert.deepEqual(one("R8.10.3 遠足").slice(0, 2), ["遠足", "2026-10-03"]);
+assert.deepEqual(one("2026-10-03 遠足").slice(0, 2), ["遠足", "2026-10-03"]);
+assert.deepEqual(one("10/3㈯ 遠足").slice(0, 2).concat(one("10/3㈯ 遠足")[5]), ["遠足", "2026-10-03", "high"]);
+assert.deepEqual(one("第2回 保護者会 10/3(土)").slice(0, 2).concat(one("第2回 保護者会 10/3(土)")[4]), ["保護者会", "2026-10-03", "第2回"]);
+assert.deepEqual(one("1年生 10/3(土) 遠足").slice(0, 2).concat(one("1年生 10/3(土) 遠足")[4]), ["遠足", "2026-10-03", "1年生"]);
+assert.deepEqual(one("①10/3 遠足").slice(0, 2), ["遠足", "2026-10-03"]);
+assert.deepEqual(one("10 / 3 (土) 遠足").slice(0, 2), ["遠足", "2026-10-03"]); // OCR の空白
+assert.deepEqual(one("10月 3日 (土) 遠足").slice(0, 2), ["遠足", "2026-10-03"]);
+
+// 「10月中に提出」は見出しではなく unparsed
+r = run("10月中に提出してください");
+assert.deepEqual([r.events.length, r.unparsed], [0, ["10月中に提出してください"]]);
 
 console.log("all passed");

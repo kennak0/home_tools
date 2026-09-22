@@ -3,7 +3,7 @@
 // npm の依存は増やさない。
 import { createServer } from "node:http";
 import { createReadStream, statSync } from "node:fs";
-import { join, normalize, extname, resolve } from "node:path";
+import { join, normalize, extname, resolve, sep } from "node:path";
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((acc, a, i, arr) => (a.startsWith("--") ? [...acc, [a.slice(2), arr[i + 1]]] : acc), []),
@@ -24,11 +24,19 @@ const types = {
   ".ico": "image/x-icon",
 };
 
+// http でしか配信しないので、LAN の実機からはログイン（crypto.subtle）もカメラも動かない。
+// 実機テストは https で（AGENTS.md「テスト」）。
 createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
-  let path = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
+  let path;
+  try {
+    path = normalize(decodeURIComponent(url.pathname)).replace(/^(\.\.[/\\])+/, "");
+  } catch {
+    res.writeHead(400).end("bad request"); // 壊れた % エスケープでプロセスを落とさない
+    return;
+  }
   let file = join(root, path);
-  if (!file.startsWith(root)) {
+  if (file !== root && !file.startsWith(root + sep)) {
     res.writeHead(403).end();
     return;
   }
