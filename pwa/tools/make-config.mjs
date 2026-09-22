@@ -3,10 +3,11 @@
 //   node pwa/tools/make-config.mjs \
 //     --out pwa/family-schedule/config.enc \
 //     --passphrase-file ~/.config/home_tools/family-schedule.passphrase \
-//     [--in config.plain.json] [--url https://kennak0.github.io/home_tools/family-schedule/] [--qr-only]
+//     [--in config.plain.json] [--url https://kennak0.github.io/home_tools/family-schedule/] \
+//     [--qr-out family-schedule-login-qr.svg] [--qr-only]
 //
-// - 合言葉を埋めたログイン用 QR（SVG）も --passphrase-file と同じディレクトリに書く
-//   （family-schedule-login-qr.svg）。中身は「アプリの URL + #code=合言葉」。iPhone のカメラで
+// - 合言葉を埋めたログイン用 QR（SVG）も書く。既定は --passphrase-file と同じディレクトリの
+//   family-schedule-login-qr.svg。--qr-out で場所を変えられる（リポジトリ直下は .gitignore 済み）。中身は「アプリの URL + #code=合言葉」。iPhone のカメラで
 //   読むと Safari でログイン済みの状態で開き、アプリ内の「QR コードを読み取る」でも読める。
 //   **QR は合言葉そのもの**なので、家族以外に見せない・リポジトリに置かない
 // - --qr-only なら config.enc は書き換えず QR だけ作り直す（salt が変わって差分が出るのを避ける）
@@ -123,7 +124,7 @@ async function main() {
   const qr = qrcode(0, "M");
   qr.addData(`${url}#code=${passphrase}`);
   qr.make();
-  const qrPath = resolve(dirname(passFile), "family-schedule-login-qr.svg");
+  const qrPath = resolve(args["qr-out"] ?? resolve(dirname(passFile), "family-schedule-login-qr.svg"));
   writeFileSync(qrPath, qr.createSvgTag({ cellSize: 8, margin: 32, scalable: true }) + "\n", { mode: 0o600 });
   chmodSync(qrPath, 0o600); // 既存ファイルには mode が効かない
   console.log(`wrote ${qrPath} (login QR; treat it like the passphrase)`);

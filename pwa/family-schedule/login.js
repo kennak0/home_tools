@@ -5,6 +5,12 @@
 //   salt / iv / ct は base64。復号した平文は JSON オブジェクト
 import { getSetting, putSettings, clearSettings } from "./db.js";
 
+// 背面カメラを優先。qr-scan.js は押されたときだけ読むので、制約はこちらに置く
+const CAMERA_CONSTRAINTS = {
+  video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+  audio: false,
+};
+
 const CONFIG_URL = new URL("./config.enc", import.meta.url);
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -150,6 +156,7 @@ export function mountLogin(root, { onUnlocked }) {
     stopScan = null;
     scanner.hidden = true;
     scanButton.disabled = false;
+    showStatus("");
   }
 
   form.addEventListener("submit", async (ev) => {
@@ -161,41 +168,92 @@ export function mountLogin(root, { onUnlocked }) {
     if (!(await tryUnlock(passphrase))) input.focus();
   });
 
-  scanButton.addEventListener("click", async () => {
+  // カメラを諦めて写真から読む経路に切り替える。理由は必ず画面に出す（黙って何も起きない状態を作らない）
+  function fallbackToPhoto(message) {
+    closeScanner();
+    scanFileLabel.hidden = false;
+    scanButton.hidden = true;
+    showStatus("");
+    showError(message);
+  }
+
+  function cameraErrorMessage(e) {
+    switch (e?.name) {
+      case "NotAllowedError":
+      case "SecurityError":
+        return "カメラの使用が許可されていません。設定 → Safari → カメラ で許可するか、QR コードを撮った写真から読み取ってください。";
+      case "NotFoundError":
+      case "OverconstrainedError":
+        return "カメラが見つかりませんでした。QR コードを撮った写真から読み取れます。";
+      case "NotReadableError":
+        return "カメラを他のアプリが使っています。閉じてからもう一度試すか、写真から読み取ってください。";
+      case "TimeoutError":
+        return "カメラが応答しませんでした。QR コードを撮った写真から読み取れます。";
+      default:
+        return "カメラを使えませんでした。QR コードを撮った写真から読み取れます。";
+    }
+  }
+
+  scanButton.addEventListener("click", (ev) => {
+    ev.preventDefault();
     showError("");
-    if (!navigator.mediaDevices?.getUserMedia) {
-      // カメラ API が無い → 写真から読む
-      scanFileLabel.hidden = false;
-      scanButton.hidden = true;
+    if (!isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      // http や非対応ブラウザ（iOS の一部）→ 写真から読む
+      fallbackToPhoto(
+        isSecureContext
+          ? "このブラウザではカメラを使えません。QR コードを撮った写真から読み取れます。"
+          : "https でないとカメラを使えません。QR コードを撮った写真から読み取れます。",
+      );
       return;
     }
-    if (!isSecureContext) {
-      showError("https でないとカメラを使えません。");
-      return;
-    }
+
+    const gen = ++scanGen;
     scanner.hidden = false;
     scanButton.disabled = true; // 起動中の二度押しを防ぐ
-    const gen = ++scanGen;
-    try {
-      const { startScan } = await import("./qr-scan.js");
-      const stop = await startScan(video, (text) => {
-        closeScanner();
-        handleScanned(text);
-      });
-      if (gen !== scanGen) {
-        stop(); // 権限ダイアログの間に「やめる」が押された
-        return;
+    showStatus("カメラを準備しています…（許可を聞かれたら「許可」を選んでください）");
+
+    // **タップ直後に getUserMedia を始める**。await を挟むと iOS で user activation が切れ、
+    // 許可ダイアログが出ないまま何も起きないことがある。jsQR の読み込みはこの後ろで待つ
+    const camera = navigator.mediaDevices.getUserMedia(CAMERA_CONSTRAINTS);
+    // 許可も拒否もされないまま返ってこないときの保険
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(Object.assign(new Error("camera timeout"), { name: "TimeoutError" })), 15000),
+    );
+
+    (async () => {
+      try {
+        const { startScan } = await import("./qr-scan.js");
+        const stream = await Promise.race([camera, timeout]);
+        if (gen !== scanGen) {
+          stream.getTracks().forEach((t) => t.stop()); // 待っている間に「やめる」が押された
+          return;
+        }
+        showStatus(""); // 以後はスキャナ内の案内文に任せる
+        const stop = await startScan(
+          video,
+          stream,
+          (text) => {
+            closeScanner();
+            handleScanned(text);
+          },
+          () => {
+            // 許可は下りたのに映像が出ない（Orion など Safari 以外の iOS ブラウザで確認）
+            fallbackToPhoto("カメラの映像を取得できませんでした。Safari で開くか、QR コードを撮った写真から読み取ってください。");
+          },
+        );
+        if (gen !== scanGen) {
+          stop();
+          return;
+        }
+        stopScan = stop;
+      } catch (e) {
+        if (gen !== scanGen) return;
+        console.error(e);
+        // 取れたストリームが後から届いても止める
+        camera.then((s) => s.getTracks().forEach((t) => t.stop())).catch(() => {});
+        fallbackToPhoto(cameraErrorMessage(e));
       }
-      stopScan = stop;
-    } catch (e) {
-      if (gen !== scanGen) return;
-      console.error(e);
-      closeScanner();
-      // 権限拒否など。写真から読む経路を出す
-      scanFileLabel.hidden = false;
-      scanButton.hidden = true;
-      showError("カメラを使えませんでした。QR コードを撮った写真から読み取れます。");
-    }
+    })();
   });
   root.querySelector("#scanner-stop").addEventListener("click", closeScanner);
 

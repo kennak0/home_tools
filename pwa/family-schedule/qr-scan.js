@@ -27,19 +27,25 @@ function decodeCanvas(jsQR, canvas) {
   return jsQR(img.data, img.width, img.height, { inversionAttempts: "dontInvert" })?.data ?? null;
 }
 
-// カメラ映像を video に流し、QR が読めたら onCode(text) を呼んで止める。戻り値は stop()
-export async function startScan(video, onCode) {
+// カメラ映像（呼び出し側が取った MediaStream）を video に流し、QR が読めたら onCode(text) を
+// 呼んで止める。戻り値は stop()。
+// **getUserMedia はここで呼ばない**: iOS はタップ直後（user activation 有効中）でないと
+// カメラの許可ダイアログを出さず、待っても何も起きないことがある。jsQR の読み込み（256KB）を
+// 挟むと間に合わないので、呼び出し側がタップ直後に getUserMedia を始めてストリームを渡す
+// onStall: 許可は下りたのに映像が出てこないとき（一部のブラウザで起きる）に 1 回だけ呼ぶ
+export async function startScan(video, stream, onCode, onStall) {
   const jsQR = await loadJsQR();
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
-    audio: false,
-  });
   video.srcObject = stream; // HTML 側の playsinline で iOS のフルスクリーン化を抑える
-  await video.play();
+  // **play() を await しない**。映像が来ないブラウザ（Orion で確認）では解決も reject もせず、
+  // 待つと下の stall 判定に進めないまま「開いたのに何も起きない」になる
+  video.play().catch(() => {});
 
   const canvas = document.createElement("canvas");
   let stopped = false;
   let timer = 0;
+  let stalled = false;
+  const startedAt = Date.now();
+  const STALL_MS = 8000;
   const stop = () => {
     stopped = true;
     clearTimeout(timer);
@@ -48,6 +54,11 @@ export async function startScan(video, onCode) {
   };
   const tick = () => {
     if (stopped) return;
+    if (!stalled && !video.videoWidth && Date.now() - startedAt > STALL_MS) {
+      stalled = true;
+      onStall?.();
+      return; // 呼び出し側が stop() する
+    }
     if (video.readyState >= 2 && video.videoWidth) {
       // 解析は 640px 幅で十分。毎フレーム全画素を読むと iPhone で重い
       const scale = Math.min(1, 640 / video.videoWidth);

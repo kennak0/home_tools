@@ -6,6 +6,9 @@
 !/pwa/
 !/.github/
 
+# ログイン用 QR（合言葉そのもの）。ルートは /* で除外済みだが、明示しておく
+/family-schedule-login-qr.svg
+
 # pwa/ の中でも追跡しないもの
 pwa/**/node_modules/
 pwa/**/*.env

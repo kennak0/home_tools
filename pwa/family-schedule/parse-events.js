@@ -35,7 +35,11 @@ const RE_DATE_D = /(?<![\d/:月])(\d{1,2})\s*日(?!間|後|前|以|目)/g;
 // 曜日は「(土)」のように括弧付きか「土曜」のように 曜 が続くときだけ。裸の 1 字はタイトル（水泳、火災、日帰り）を食う
 const RE_WEEKDAY = /\s*(?:\(\s*([月火水木金土日])\s*(?:曜日?)?\s*\)|([月火水木金土日])曜日?)/y;
 const RE_MONTH_HEADER = /^(?:(\d{4})年)?\s*(\d{1,2})月(?!\d|\s*\d)/;
-const TIME_CORE = "(午前|午後)?(\\d{1,2})(?::(\\d{2})|時(\\d{1,2})?分?)";
+// 「9月 部活動予定表」のように行の途中にある月（表のタイトル行）
+const RE_MONTH_ANYWHERE = /(?:(\d{4})年\s*)?(\d{1,2})\s*月(?![\d\s]*\d\s*日)/;
+// 表の行頭「[月] 日 曜日 …」。区切りは空白か罫線（OCR は | にする）
+const RE_ROW = /^[\s|｜]*(?:(\d{1,2})[\s|｜]+)?(\d{1,2})[\s|｜]+([月火水木金土日])(?=[\s|｜]|$)/;
+const TIME_CORE = "(午前|午後)?(\\d{1,2})(?:\\s*:\\s*(\\d{2})|時\\s*(\\d{1,2})?\\s*分?)";
 const TIME_TAIL = "(?!間|日|月|年|限|\\d)";
 const RE_TIME = new RegExp(`${TIME_CORE}${TIME_TAIL}`, "g");
 const RE_TIME_RANGE = new RegExp(`${TIME_CORE}\\s*[~\\-]\\s*${TIME_CORE}${TIME_TAIL}`, "g");
@@ -78,6 +82,16 @@ function yearFor(mo, day, context, today) {
 // 行内の日付をすべて位置付きで拾う。context.month は「N日」だけの行に使う
 function findDates(line, context, today) {
   const found = [];
+  // 表の行（日と曜日が別の列）。月は行にあるか、見出しから引き継ぐ
+  const row = line.match(RE_ROW);
+  if (row) {
+    const mo = Number(row[1] ?? context.month);
+    const d = Number(row[2]);
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      if (row[1]) context.month = mo; // 表の 1 行目だけ月が入っていることが多い
+      return [{ index: 0, length: row[0].length, y: yearFor(mo, d, context, today), m: mo, d, hasYear: false, weekday: row[3] }];
+    }
+  }
   for (const m of line.matchAll(RE_DATE_FULL)) {
     const [y, mo, d] = m[1] ? [m[1], m[2], m[3]] : [m[4], m[6], m[7]];
     found.push({ index: m.index, length: m[0].length, y: Number(y), m: Number(mo), d: Number(d), hasYear: true });
@@ -171,13 +185,16 @@ export function parseEvents(text, { today = new Date() } = {}) {
     const dates = findDates(line, context, today);
     const times = findTimes(line);
 
-    // 「10月の予定」「2026年10月」のような見出し → 月の文脈にする。行自体は unparsed にも残す
-    const header = line.match(RE_MONTH_HEADER);
-    if (header && dates.length === 0) {
-      context.month = Number(header[2]);
-      if (header[1]) context.year = Number(header[1]);
-      unparsed.push(line);
-      continue;
+    // 「10月の予定」「R8 サッカー部 9月 部活動予定表」のような見出し → 月の文脈にする。
+    // 行自体は unparsed にも残す（黙って消さない）
+    if (dates.length === 0 && times.length === 0) {
+      const header = line.match(RE_MONTH_HEADER) ?? line.match(RE_MONTH_ANYWHERE);
+      if (header) {
+        context.month = Number(header[2]);
+        if (header[1]) context.year = Number(header[1]);
+        unparsed.push(line);
+        continue;
+      }
     }
 
     if (dates.length === 0) {
@@ -205,8 +222,8 @@ export function parseEvents(text, { today = new Date() } = {}) {
       const wd = RE_WEEKDAY.exec(line);
       return wd ? { weekday: wd[1] ?? wd[2], index: wd.index, length: wd[0].length } : null;
     };
-    let weekday = null;
-    const wd1 = weekdayAfter(first.index + first.length);
+    let weekday = first.weekday ?? null; // 表の行は日付と一緒に曜日も取れている
+    const wd1 = weekday ? null : weekdayAfter(first.index + first.length);
     if (wd1) {
       weekday = wd1.weekday;
       spans.push({ index: wd1.index, length: wd1.length });
