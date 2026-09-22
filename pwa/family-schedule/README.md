@@ -8,10 +8,17 @@
 
 ## 状態
 
-段階 1 の途中。ログイン画面（`config.enc` の復号 → settings 保存 → ログアウト）まで
-実装済みで、GitHub Pages に配信する Actions（`.github/workflows/pages.yml`）も置いた。
+段階 1 の途中 + 段階 2 を先行。実装済みは次のとおり。
+
+- ログイン画面（`config.enc` の復号 → settings 保存 → ログアウト）
+- **段階 2a: テキスト貼り付け** → `parse-events.js` のルール解析 → 候補の確認画面（編集・チェック）→ 追加
+- **段階 2b: 写真 → 端末内 OCR（Tesseract.js）** → 同じ解析 → 同じ確認画面。通信なし
+- 予定の一覧と削除（tombstone）。月カレンダー・手入力・メンバー登録はまだ無い
+- GitHub Pages に配信する Actions（`.github/workflows/pages.yml`）
+- 2c（Claude API）は一度作って**削除した**（「段階 2」末尾）
+
 **service worker と manifest はまだ無い**（普通の Web ページとして動く。オフライン起動・
-更新バナーは無し）。予定表本体に着手するときに `sw.js` と生成スクリプトを足す。
+更新バナーは無し）。カレンダー本体に着手するときに `sw.js` と生成スクリプトを足す。
 それまで家族には配らない。
 
 ## 段階
@@ -19,7 +26,7 @@
 | 段階 | 内容 | 同期 |
 |---|---|---|
 | **1（いま）** | 端末内だけで動く予定表。登録・編集・削除、メンバー別の色分け、アプリを開いている間のリマインダー | なし（端末ごとに独立） |
-| 2 | 写真・プリントから予定を読み取る。2a テキスト貼り付け → 2b 端末内 OCR → 2c Claude API の順に足す（下の「段階 2」） | 2a・2b はなし。2c はユーザー操作時のみ Anthropic API へ |
+| 2 | 写真・プリントから予定を読み取る。2a テキスト貼り付け → 2b 端末内 OCR（下の「段階 2」）。外部の AI API は使わない | なし |
 | 3 | 家族の端末間で同期 | 未定。第一候補は GitHub の非公開リポジトリを DB にする（下の「同期方式の候補」） |
 | 4 | アプリを閉じていても届くリマインダー（Web Push） | 段階 3 に相乗り（GitHub なら Actions の cron から送る） |
 
@@ -63,7 +70,6 @@
 ```
 config.enc（公開サイトに置く。中身は AES-GCM で暗号化した JSON）
   ├── 段階 1: { "ok": true }                     ← 復号できれば合言葉が正しい
-  ├── 段階 2c: + "anthropicApiKey"（任意。家族で共有するなら）
   └── 段階 3: + "githubToken"（データリポジトリの PAT）
 
 合言葉 ──PBKDF2-SHA256（600,000 回、salt は config.enc に同梱）──▶ AES-GCM 鍵
@@ -153,7 +159,6 @@ IndexedDB（DB 名 `family-schedule`）。`localStorage` は使わない。
 
 // store: settings (keyPath: key)   すべて端末内のみ。「ログアウト」で全消し
 { key: "unlocked", value: true }            // 共有コードで config.enc を復号済み
-{ key: "anthropicApiKey", value: "..." }   // 段階 2c
 { key: "githubToken", value: "..." }       // 段階 3
 ```
 
@@ -164,7 +169,7 @@ IndexedDB（DB 名 `family-schedule`）。`localStorage` は使わない。
 ```
 pwa/family-schedule/
 ├── index.html           ✓ 起動ページ。standalone 判定の inline script を <head> に置く。ログイン画面と仮のホーム画面
-├── app.js               ✓ エントリ（ES module）。unlocked を見て画面を出し分ける
+├── app.js               ✓ エントリ（ES module）。ログイン / ホーム（予定一覧）/ 読み取り / 設定の配線
 ├── app.css              ✓ 共通スタイル（safe-area、100dvh の flex column、iOS の選択バー対策）
 ├── login.js             ✓ 共有コード入力 → PBKDF2 → config.enc 復号 → settings 保存。ログアウト
 ├── config.enc           ✓ 暗号化済み設定（これだけコミットする。平文と合言葉は置かない）
@@ -173,13 +178,13 @@ pwa/family-schedule/
 ├── sw.js                  service worker（precache 一覧と VERSION は生成）
 ├── manifest.webmanifest   name / icons / start_url と scope（GitHub Pages では末尾スラッシュあり。「ホスティング」参照）
 ├── icons/                 apple-touch-icon 含む
-├── parse-events.js        段階 2。テキスト → 予定候補のルールベース解析（2a/2b/2c 共通）
-├── ocr.js                 段階 2b。Tesseract.js の呼び出し。dynamic import
-├── vendor/tesseract/      段階 2b。Tesseract.js 本体・worker・WASM・jpn.traineddata（precache 対象外）
-└── photo-import.js        段階 2c。dynamic import で起動時には読まない
+├── parse-events.js      ✓ 段階 2。テキスト → 予定候補のルールベース解析（2a/2b 共通）。テストは pwa/tools/test-parse-events.mjs
+├── ocr.js               ✓ 段階 2b。縮小・グレースケール化と Tesseract.js の呼び出し。dynamic import
+├── vendor/tesseract/    ✓ 段階 2b。Tesseract.js 7.0.0 本体・worker・WASM（simd / 非 simd の LSTM 版）・jpn.traineddata.gz（precache 対象外。VENDORED.md）
 
 pwa/tools/
 ├── make-config.mjs      ✓ config.enc の生成（「ログイン」参照）
+├── test-parse-events.mjs ✓ parse-events.js のテスト。`node pwa/tools/test-parse-events.mjs`
 ├── serve.mjs            ✓ 開発用の静的サーバ。`node pwa/tools/serve.mjs` で pwa/ を http://localhost:8080/ に
 ├── slow-proxy.mjs         応答前に sleep するリバースプロキシ（遅い回線の再現）
 └── build-sw.mjs           precache 一覧と VERSION を sw.js に埋める
@@ -223,24 +228,19 @@ pwa/tools/
 
 ## 外部送信
 
-| いつ | 何を | どこへ | 段階 |
-|---|---|---|---|
-| 「写真から予定を読み取る（Claude）」を押したとき | 選んだ写真 1 枚（端末内で縮小・EXIF 除去済み）と指示文 | `https://api.anthropic.com/v1/messages` | 2c |
-| 端末内 OCR を初めて使うとき | なし（辞書ファイルを自分のオリジンから取るだけ） | 自分のオリジン | 2b |
-
-それ以外の通信は自分のオリジンからアプリ本体と `config.enc` を取るだけ。
+**なし。** 通信は自分のオリジンからアプリ本体・`config.enc`・OCR の辞書ファイル（2b、初回だけ）を
+取るだけ。写真もテキストも端末の外に出ない。外部の AI API は使わない（2c は不採用）。
 
 ## 段階 2: 写真・プリントから予定を読み取る
 
 学校のプリントや案内から予定候補を抽出し、**ユーザーが確認してから**保存する。
-自動では入れない。入力の取り方は 3 通りあり、この順に足す。**どの経路でも
+自動では入れない。入力の取り方は 2 通りあり、この順に足す。**どの経路でも
 最後は同じ「テキスト → 予定候補」のルールベース解析（`parse-events.js`）を通す。**
 
 | 経路 | OCR をやる場所 | 外部送信 | 精度 | 追加サイズ |
 |---|---|---|---|---|
 | 2a テキスト貼り付け | iOS の写真アプリ（テキスト認識表示 / Live Text）。ユーザーが文字を選んでコピーし、アプリに貼る | なし | 日本語の印刷物なら高い（Apple の OCR） | 0 |
 | 2b 端末内 OCR | アプリ内の Tesseract.js（WASM） | なし | 印刷物の横書きなら実用。斜め・影・表組み・手書きに弱い | 本体 + 日本語辞書 約 2MB（fast）〜16MB（best）。初回だけ取得して Cache API に置く |
-| 2c Claude API | Anthropic のサーバ | 写真 1 枚 | 高い。表・年の省略・手書きも読む | 0 |
 
 ### 2a: テキスト貼り付け（最初に作る）
 
@@ -250,7 +250,22 @@ pwa/tools/
   「URL を開く」で `…/family-schedule/?text=<encoded>` を開く。URL の長さに
   上限があるので長文は貼り付けに倒す
 - 通信ゼロ、追加サイズゼロで、`parse-events.js` の出来を先に詰められる。
-  **2b・2c を作る前にこれで解析ルールを育てる**
+  **2b を作る前にこれで解析ルールを育てる**
+
+#### `parse-events.js` の規則（実装済み）
+
+- 1 行 = 1 予定。行の最初の日付を予定の日付にする。`2026/10/3` `10/3` `10月3日` `3日`
+  （`10月の予定` のような見出し行で月が分かっているとき）。全角は半角に寄せる
+- 日付の直後の曜日 `（金）` を読み、**計算した曜日と食い違えば confidence を `low`**
+  （年の取り違えか OCR の読み違い）。曜日か年があれば `high`、無ければ `medium`
+- 年が無ければ今日以降で最も近い年。ただし **30 日前までは今年**（配られたばかりの
+  プリントに先週の日付が載っていることがある）
+- 時刻は `9:00` `9時30分` `午後1時` と、`13:30~14:15` の範囲。無ければ終日。
+  日付の無い行に時刻だけあれば直前の予定に付ける
+- 期間 `7/20~8/31` は開始日の 1 件にし、メモに `~8/31 まで` を残す
+- 日付と時刻を除いた残りの、最初の空白か句点まではタイトル、後ろはメモ。
+  OCR が表の罫線を `|` にするので、`|` は区切りとして捨てる
+- 日付の無い行は `unparsed` に返し、確認画面で「読めなかった行」として見せる
 
 ### 2b: 端末内 OCR（Tesseract.js）
 
@@ -259,112 +274,31 @@ pwa/tools/
   worker と WASM と `jpn.traineddata` はサイズが大きいので precache 一覧から外し、
   初回に「読み取る」を押したとき自分のオリジンから取って Cache API に保存する
   （起動の critical path に載せない。SKILL.md「Precaching」の例外として README に明記）
-- 辞書は `jpn`（横書き）。縦書きのプリントは `jpn_vert` を足す。fast 版（約 2MB）
+- 辞書は `jpn`（横書き）。縦書きのプリントは `jpn_vert` を足す。fast 版（gzip で 1.5MB）
   で始め、読めなければ best 版（約 16MB）を試す
-- 前処理で精度が大きく変わる: 長辺 2000px 程度に縮小、グレースケール化、
-  必要なら二値化。canvas で行う
+- 前処理で精度が大きく変わる: 長辺 **2600px** に縮小、グレースケール化 + コントラスト 1.2
+  （canvas の `filter`）。2000px では本文が小さすぎて日本語の認識率が落ちた
+- **ページ分割は PSM 4**（1 列・行ごと）。Tesseract.js の既定 6（1 ブロック）は表の行が
+  崩れ、3（自動）はセルがばらばらの行になって日付と予定が離れる。4 なら
+  `10/3 (土) |遠足 お弁当・水筒。9:00 集合` のように行が保たれる
+- 日本語出力は文字ごとに空白が入る。CJK 同士の単一空白は詰め、2 つ以上（列の区切り）だけ
+  1 つ残す。よくある読み違い（`(士)` → `(土)`、時刻の間の `て` `<>` → `~`）も `ocr.js` で直す
+- 辞書と WASM は Tesseract.js が IndexedDB（`keyval-store`）に置いて 2 回目から再利用する。
+  Cache API ではないが役割は同じ。初回は約 9.5MB の取得が要る
 - 精度の限界はアプリ内で正直に出す。「読めなかった行」を残して、ユーザーが直せる UI にする
-- Tesseract も機械学習モデル（LSTM）だが、端末内で完結し外部送信がない点で 2c と区別する
+- Tesseract も機械学習モデル（LSTM）だが、端末内で完結し外部送信がない。外部の AI API とはそこが違う
 
-### 2c: Claude API
+### 2c: Claude API（不採用）
 
-写真をそのまま送り、モデルに構造化 JSON で返させる。2a・2b で読めない
-（表組み、手書き、写真の質が悪い）ときの手段。以下はこの経路の設計。
+写真を Anthropic API に送って構造化 JSON で返させる案。2026-09-22 に一度実装したが、
+**API（従量課金）を使う予定がないので削除した**（個人利用の Claude はサブスクリプションで、
+そのログインは Claude Code の外では使えない）。再検討するときの要点だけ残す。
 
-
-### 認証
-
-- **Claude Code のログイン（サブスクリプションの OAuth トークン）は使えない。**
-  Claude Code / Agent SDK の外で使うことは Anthropic の利用条件で認められていない。
-  トークン自体も短命でローテーションするので、アプリに埋めても動き続けない。**Console
-  (<https://platform.claude.com/>) で発行する API キー**（従量課金）を使う
-- キーは専用の Workspace で発行し、月の上限額を設定する。漏れたときの被害を
-  そこで止める
-- キーはユーザーが設定画面で入力し、IndexedDB の `settings` に端末内保存する。
-  コード・リポジトリ・ビルド成果物には置かない。保存後は input を空にする
-- 家族の他の端末にもそれぞれ入れる。段階 3 でサーバができたら、キーはサーバ側へ
-  移して端末からは消す
-
-### 呼び方
-
-- ブラウザから `fetch` で直接 `POST https://api.anthropic.com/v1/messages`。
-  ヘッダーは `x-api-key`, `anthropic-version: 2023-06-01`,
-  `anthropic-dangerous-direct-browser-access: true`, `content-type: application/json`。
-  API 側は `Access-Control-Allow-Origin: *` を返すので CORS は通る（2026-09-22 に
-  preflight で確認済み）
-- 公式 SDK (`@anthropic-ai/sdk`) はバンドラが要るので、ビルドなしの方針と合わない。
-  バンドラを入れる判断をしたら SDK (`dangerouslyAllowBrowser: true`) に切り替える
-- `photo-import.js` は dynamic import。起動時の critical path に載せない
-- オフライン時はボタンを無効化する。キューに溜めて後で送る、はしない
-  （写真を端末に持ち続ける理由がない）
-
-### 画像の前処理（端末内）
-
-- `<input type="file" accept="image/*" capture="environment">` で撮影 or 選択
-- canvas で長辺 **1568px** に縮小し JPEG (quality 0.85) にする。
-  canvas を通すと EXIF（位置情報など）が落ちる
-- 1568px は標準解像度の上限。モデルが高解像度対応でもここまで下げてよい:
-  1 枚 ≒ 1,500 visual tokens 前後で、プリントの文字は十分読める。
-  読めなかったら 2576px を試す（トークンは約 3 倍）
-- 対応形式は JPEG / PNG / GIF / WebP。HEIC は iOS Safari の file input が
-  JPEG に変換して渡す
-
-### リクエスト
-
-- モデルは `claude-opus-5` を既定にする。安く済ませたいとき `claude-haiku-4-5`
-  へ切り替えられるよう、設定画面で選べるようにする
-- 画像ブロックを先、指示文を後に置く
-- 指示文に「今日の日付」「家族のメンバー名一覧」「年が書いてなければ次に来る
-  同月日」を含める。年の省略はプリントで頻出
-- 出力は `output_config.format` の JSON Schema で固定する:
-
-```json
-{
-  "type": "object",
-  "properties": {
-    "events": {
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "title":   { "type": "string" },
-          "date":    { "type": "string", "description": "YYYY-MM-DD" },
-          "start":   { "type": ["string", "null"], "description": "HH:MM" },
-          "end":     { "type": ["string", "null"] },
-          "allDay":  { "type": "boolean" },
-          "member":  { "type": ["string", "null"], "description": "メンバー名。不明なら null" },
-          "note":    { "type": "string" },
-          "confidence": { "type": "string", "enum": ["high", "medium", "low"] }
-        },
-        "required": ["title", "date", "start", "end", "allDay", "member", "note", "confidence"],
-        "additionalProperties": false
-      }
-    }
-  },
-  "required": ["events"],
-  "additionalProperties": false
-}
-```
-
-- `stop_reason` を見る。`refusal` と `max_tokens` は「読み取れませんでした」に落とす
-- 429 / 5xx は 1 回だけ待って再試行。それ以外はそのままエラー表示
-
-### UI
-
-1. 写真を選ぶ → 縮小プレビュー → 「読み取る」
-2. 候補一覧（confidence `low` は目立たせる）。1 件ずつ編集・除外できる
-3. 「追加」で選んだ分だけ `events` に入れる（`source: "photo"`）
-
-### 費用の目安
-
-1 枚あたり画像 1,500 tokens + 指示文 500 tokens、出力 300 tokens と見積もる。
-
-| モデル | 入力 | 出力 | 1 枚あたり |
-|---|---|---|---|
-| claude-opus-5 | $5/M | $25/M | 約 $0.018（≒ 3 円） |
-| claude-haiku-4-5 | $1/M | $5/M | 約 $0.004（≒ 0.6 円） |
-
-家族で月に数十枚なら、どちらでも月 100 円に届かない。
+- 端末内で長辺 1568px に縮小して JPEG にし、画像ブロック → 指示文の順で送る
+- 出力は `output_config.format` の JSON Schema で固定（title / date / start / end / allDay / member / note / confidence）
+- キーは設定画面で入力して IndexedDB に置き、DOM に残さない。専用 Workspace + 月上限で発行する
+- ブラウザから直接叩くには `anthropic-dangerous-direct-browser-access: true` ヘッダーが要る（CORS は通る）
+- 1 枚あたり Opus 5 で約 3 円、Haiku 4.5 で約 0.6 円
 
 ## 同期方式の候補（段階 3、未決）
 

@@ -67,3 +67,38 @@ export async function clearSettings() {
   tx.objectStore("settings").clear();
   await done(tx);
 }
+
+// --- events ---------------------------------------------------------------
+
+export async function putEvents(events) {
+  const db = await openDb();
+  const tx = db.transaction("events", "readwrite");
+  const store = tx.objectStore("events");
+  for (const ev of events) store.put(ev);
+  await done(tx);
+}
+
+// 削除済み（tombstone）を除き、日付・開始時刻順で返す
+export async function listEvents() {
+  const db = await openDb();
+  const all = await request(db.transaction("events").objectStore("events").getAll());
+  return all
+    .filter((ev) => !ev.deleted)
+    .sort((a, b) => (a.date + (a.start ?? "")).localeCompare(b.date + (b.start ?? "")));
+}
+
+export async function softDeleteEvent(id) {
+  const db = await openDb();
+  const tx = db.transaction("events", "readwrite");
+  const store = tx.objectStore("events");
+  const ev = await request(store.get(id));
+  if (ev) store.put({ ...ev, deleted: true, updatedAt: Date.now() });
+  await done(tx);
+}
+
+export async function deleteSetting(key) {
+  const db = await openDb();
+  const tx = db.transaction("settings", "readwrite");
+  tx.objectStore("settings").delete(key);
+  await done(tx);
+}

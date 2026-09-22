@@ -1,5 +1,6 @@
 # pwa/ 配下だけを GitHub Pages に配信する。リポジトリのルートは公開しない。
 # 有効化: Settings → Pages → Source を "GitHub Actions" にする（無料プランは公開リポジトリのみ）。
+# action は full SHA で固定し、コメントにバージョンを書く（tag は動くため）。
 name: Deploy pwa/ to GitHub Pages
 
 on:
@@ -10,29 +11,43 @@ on:
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
+# 既定は読み取りのみ。書き込み権限は job 側で最小限だけ足す
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
+# 同時デプロイは 1 つ。進行中の本番デプロイは止めず、キュー待ちの中間 run だけスキップする
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: write      # Pages deployment を作る
+      id-token: write   # OIDC トークン（deploy-pages が要求）
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
-      # 配信するのはアプリ本体だけ。開発用スクリプト（tools/）と README は載せない
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false # git push しないので token を残さない
+
+      # 出力は使っていないので削除しても動く。Pages 未有効時に早く失敗するために残している
+      - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      # 配信するのはアプリ本体だけ。pwa/tools/ と README 類は載せない
+      # exclude は先頭 / でアンカーし、pwa/<app>/tools/ を誤って落とさない
       - name: Collect site files
-        run: rsync -a --exclude 'tools/' --exclude '*.md' pwa/ _site/
-      - uses: actions/upload-pages-artifact@v3
+        run: rsync -a --exclude='/tools/' --exclude='*.md' pwa/ _site/
+
+      # v4 以降は dotfile を artifact に含めない（必要なら include-hidden-files: true）
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
           path: _site
+
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

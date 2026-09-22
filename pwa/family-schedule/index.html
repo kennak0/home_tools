@@ -32,10 +32,56 @@
       </form>
     </section>
 
-    <!-- ログイン後。予定表本体はまだ無いので仮の画面 -->
+    <!-- ホーム。保存済みの予定一覧と、読み取りへの入口 -->
     <section id="home" class="pane" hidden>
-      <h1>家族の予定表</h1>
-      <p class="lead">ログイン済みです。予定表はこれから作ります。</p>
+      <header class="bar">
+        <h1>家族の予定表</h1>
+        <button id="open-settings" type="button" class="link">設定</button>
+      </header>
+      <!-- 写真は input[type=file] で撮影 or 選択。change で ocr.js を dynamic import する -->
+      <label class="file-button">
+        <input id="photo-input" type="file" accept="image/*" capture="environment" hidden>
+        写真から予定を読み取る
+      </label>
+      <button id="open-text" type="button" class="secondary">テキストを貼り付けて読み取る</button>
+      <h2>予定</h2>
+      <ul id="event-list" class="events"></ul>
+      <p id="event-empty" class="hint">まだ予定がありません。</p>
+    </section>
+
+    <!-- 読み取り: （写真 → OCR →）テキスト → 解析 → 候補の確認 → 追加。通信なし -->
+    <section id="import" class="pane" hidden>
+      <header class="bar">
+        <h1 id="import-title">読み取る</h1>
+        <button id="import-cancel" type="button" class="link">やめる</button>
+      </header>
+      <img id="import-preview" alt="選んだ写真" hidden>
+      <p id="import-status" class="hint" hidden></p>
+      <progress id="import-progress" max="1" value="0" hidden></progress>
+      <p id="import-error" class="error" role="alert" hidden></p>
+      <label for="import-text">テキスト（1 行に 1 つの予定。日付と時刻を含める）</label>
+      <textarea id="import-text" rows="8" placeholder="10/3（金） 遠足 9:00 集合&#10;10/10（金） 授業参観 13:30〜14:15"></textarea>
+      <button id="import-run" type="button">予定を読み取る</button>
+      <div id="candidates" hidden>
+        <h2>読み取った予定</h2>
+        <p class="hint">内容を直して、追加するものにチェックを付けてください。</p>
+        <ul id="candidate-list" class="candidates"></ul>
+        <details id="unparsed-box" hidden>
+          <summary>読めなかった行</summary>
+          <ul id="unparsed-list" class="unparsed"></ul>
+        </details>
+        <button id="import-save" type="button">チェックした予定を追加</button>
+      </div>
+    </section>
+
+    <!-- 設定 -->
+    <section id="settings" class="pane" hidden>
+      <header class="bar">
+        <h1>設定</h1>
+        <button id="settings-close" type="button" class="link">戻る</button>
+      </header>
+      <h2>この端末</h2>
+      <p class="hint">予定はこの端末の中にだけ保存されています。写真もテキストも外部には送りません。</p>
       <button id="logout" type="button" class="secondary">ログアウト（この端末の設定を消す）</button>
     </section>
 
