@@ -1,0 +1,11 @@
+# コミットするのは pwa/ と、この .gitignore だけ。
+# それ以外（devcontainer、.claude、TODO、メモ類）はローカルに置くだけで追跡しない。
+# 既に追跡されていたファイルは `git rm -r --cached` で外してある（ディスクには残る）。
+/*
+!/.gitignore
+!/pwa/
+
+# pwa/ の中でも追跡しないもの
+pwa/**/node_modules/
+pwa/**/*.env
+pwa/**/config.plain.json
